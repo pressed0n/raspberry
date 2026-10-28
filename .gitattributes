@@ -1,0 +1,17 @@
+* text=auto eol=lf
+
+# Windows launchers keep CRLF so cmd.exe and PowerShell parse them reliably.
+*.cmd text eol=crlf
+*.ps1 text eol=crlf
+
+# Binary assets must never be normalised.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.webp binary
+*.gif binary
+*.ico binary
+*.svg text
+*.sqlite binary
+*.sqlite-shm binary
+*.sqlite-wal binary

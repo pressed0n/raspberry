@@ -140,4 +140,8 @@ Tests cover stale/concurrent edits, exact retries, cross-workspace access, viewe
 5. Configure a stable domain, private administration, HTTPS ingress, encrypted off-device backups, and reboot recovery before public reachability.
 6. Add typed databases and saved table/board/calendar views.
 
-See [the research plan](RASPBERRY_PLAN.md) and [security notes](SECURITY.md). Raspberry's distribution license is still to be chosen before publication; third-party code retains its own licenses. No repository has been published.
+See [the research plan](RASPBERRY_PLAN.md) and [security notes](SECURITY.md).
+
+## License
+
+Raspberry is released under the [MIT License](LICENSE). Third-party code retains its own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
