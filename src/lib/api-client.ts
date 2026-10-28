@@ -12,7 +12,15 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
   // A crash page, a proxy error, or an empty body is not JSON. Parsing blindly
   // threw a SyntaxError that bypassed both the message and the 409 conflict path.
   const result = parse(await response.text());
-  if (!response.ok) throw new RequestError(result?.error?.code ?? "request_failed", result?.error?.message ?? unreachable, response.status);
+  if (!response.ok) {
+    const error = new RequestError(result?.error?.code ?? "request_failed", result?.error?.message ?? unreachable, response.status);
+    // An expired session is not a failed save. Send the browser to sign in again,
+    // keeping where it was, and let the draft in localStorage survive the round trip.
+    if (response.status === 401 && typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {
+      window.location.assign(`/login?next=${encodeURIComponent(window.location.pathname)}`);
+    }
+    throw error;
+  }
   if (result === null) throw new RequestError("invalid_response", unreachable, response.status);
   return result as unknown as T;
 }

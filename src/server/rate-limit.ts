@@ -24,12 +24,17 @@ function bucketFor(method: string) {
   return method === "GET" || method === "HEAD" || method === "OPTIONS" ? READ : WRITE;
 }
 
-function callerKey(headers: Headers, bucket: "read" | "write"): string {
+/** The client address, but only when a trusted proxy vouched for it. */
+export function callerIp(headers: Headers): string | null {
+  if (process.env.RASPBERRY_TRUST_PROXY !== "1") return null;
   const forwarded = headers.get("x-forwarded-for");
-  const client = process.env.RASPBERRY_TRUST_PROXY === "1" && forwarded
-    ? forwarded.split(",")[0]!.trim()
-    : "direct";
-  return `${bucket}:${client}`;
+  if (!forwarded) return null;
+  const first = forwarded.split(",")[0]?.trim();
+  return first ? first : null;
+}
+
+function callerKey(headers: Headers, bucket: string): string {
+  return `${bucket}:${callerIp(headers) ?? "direct"}`;
 }
 
 function sweep(now: number): void {
@@ -54,8 +59,15 @@ export function consume(key: string, limit: number, windowMs: number, now = Date
   return true;
 }
 
+/** A tighter budget for one endpoint, keyed by its own name. */
+export type RateLimitOptions = { bucket: string; limit: number; windowMs: number };
+
 /** Returns a message when the caller is over budget, otherwise null. */
-export function rateLimitError(headers: Headers, method: string, now = Date.now()): string | null {
+export function rateLimitError(headers: Headers, method: string, now = Date.now(), options?: RateLimitOptions): string | null {
+  if (options) {
+    const allowed = consume(callerKey(headers, options.bucket), options.limit, options.windowMs, now);
+    return allowed ? null : "Too many requests. Wait a moment and try again.";
+  }
   const bucket = method === "GET" || method === "HEAD" || method === "OPTIONS" ? "read" : "write";
   const { limit, windowMs } = bucketFor(method);
   const allowed = consume(callerKey(headers, bucket), limit, windowMs, now);

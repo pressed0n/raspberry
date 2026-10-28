@@ -1,10 +1,26 @@
 "use client";
 import dynamic from "next/dynamic";
 import { useCallback, useEffect, useRef, useState, type ReactNode } from "react";
-import { ArrowDownToLine, ArrowLeft, ArrowUpRight, BookOpen, Check, ChevronDown, ChevronRight, Clock3, Compass, Copy, FileText, HelpCircle, Leaf, Lightbulb, LoaderCircle, Menu, MoreHorizontal, NotebookPen, PanelLeftClose, Plus, Search, Sparkles, Star, Trash2, Undo2, X } from "lucide-react";
+import { ArrowDownToLine, ArrowLeft, ArrowUpRight, BookOpen, Check, ChevronDown, ChevronRight, Clock3, Compass, Copy, FileText, HelpCircle, Leaf, Lightbulb, LoaderCircle, LogOut, Menu, MoreHorizontal, NotebookPen, PanelLeftClose, Plus, Search, Sparkles, Star, Trash2, Undo2, X } from "lucide-react";
 import { download, request } from "@/lib/api-client";
 import { toMarkdown, wordCount, type Page, type PageIcon, type PageSummary, type Revision } from "@/lib/document";
 import { usePageDraft } from "./use-page-draft";
+
+/**
+ * Signs out and clears this device's drafts.
+ *
+ * The draft removal matters more than the request: unsaved text is kept in
+ * `localStorage` so a lost connection cannot lose writing, which means on a shared
+ * machine the next person could otherwise read whatever was typed before. Local mode
+ * has no session, so the request fails harmlessly there and the drafts still go.
+ */
+async function signOut() {
+  try { await request("/api/auth/logout", { method: "POST" }); } catch { /* Clearing the device is the point. */ }
+  try {
+    for (const key of Object.keys(localStorage)) if (key.startsWith("raspberry")) localStorage.removeItem(key);
+  } catch { /* Storage can be unavailable in private modes. */ }
+  window.location.assign("/login");
+}
 const BlockEditor = dynamic(() => import("./block-editor"), { ssr: false, loading: () => <div className="editor-loading"><LoaderCircle className="spin" size={18} /> Opening your page…</div> });
 const icons = { file: FileText, sparkles: Sparkles, notebook: NotebookPen, lightbulb: Lightbulb, compass: Compass, leaf: Leaf };
 function PageGlyph({ icon, size = 17 }: { icon: PageIcon; size?: number }) { const Icon = icons[icon] ?? FileText; return <Icon size={size} strokeWidth={1.65} />; }
@@ -109,7 +125,7 @@ export default function Workspace() {
       <nav className="primary-nav"><button onClick={() => setDialog("search")}><Search size={17} /><span>Search anything</span><kbd>Ctrl K</kbd></button><button onClick={() => void create()} disabled={actionBusy}><Plus size={18} /><span>New page</span></button></nav>
       {pages.some((p) => p.favorite) && <section className="nav-section"><div className="section-heading">Favorites<Star size={11} /></div>{pages.filter((p) => p.favorite).map((item) => <button key={item.id} className="favorite-link" onClick={() => void openPage(item.id)} disabled={busy}><PageGlyph icon={item.icon} /><span>{item.title}</span></button>)}</section>}
       <section className="nav-section page-section"><div className="section-heading">Your pages<button className="tiny-button" title="New page" aria-label="Create a page" onClick={() => void create()} disabled={actionBusy}><Plus size={15} /></button></div><div className="page-tree">{tree(null)}</div><button className="add-page" onClick={() => void create()} disabled={actionBusy}><Plus size={15} /> Add a page</button></section>
-      <div className="sidebar-bottom"><div className="workspace-note"><span className="note-sprout"><Leaf size={20} strokeWidth={1.5}/></span><p>A little more clarity.<br /><strong>A little more possibility.</strong></p></div><button className="utility-link" onClick={() => void openTrash()}><Trash2 size={16} />Trash</button><button className="utility-link" onClick={() => setDialog("help")}><HelpCircle size={16} />Help & shortcuts<ArrowUpRight size={13} className="trailing-icon" /></button><div className="sidebar-footer"><span className="local-dot" />Local workspace<span>v0.1</span></div></div>
+      <div className="sidebar-bottom"><div className="workspace-note"><span className="note-sprout"><Leaf size={20} strokeWidth={1.5}/></span><p>A little more clarity.<br /><strong>A little more possibility.</strong></p></div><button className="utility-link" onClick={() => void openTrash()}><Trash2 size={16} />Trash</button><button className="utility-link" onClick={() => setDialog("help")}><HelpCircle size={16} />Help & shortcuts<ArrowUpRight size={13} className="trailing-icon" /></button><button className="utility-link" onClick={() => void signOut()}><LogOut size={16} />Sign out</button><div className="sidebar-footer"><span className="local-dot" />Local workspace<span>v0.1</span></div></div>
     </aside>
     <main className="main-pane">
       {error && <div className="global-error" role="alert"><span>{error}</span><button onClick={() => setError("")} aria-label="Dismiss error"><X size={16} /></button></div>}

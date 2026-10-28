@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import type { Database, Sql } from "../database";
+import { LOCAL_WORKSPACE_ID, type Database, type Sql } from "../database";
 import { AppError } from "../service";
 import { isAllowedEmail, requireAuthConfig } from "./config";
 import { authorizationUrl, exchangeCode } from "./google";
@@ -189,6 +189,19 @@ function codeFailure(
 export type Account = { userId: string; workspaceId: string; created: boolean };
 
 /**
+ * Whether this sign-in should adopt the notes that already exist on this machine.
+ *
+ * Requires `RASPBERRY_OWNER_EMAIL` to be set and to match exactly. With it unset, nobody
+ * adopts anything and every account gets its own workspace — the safe default, because
+ * the alternative reading of a missing value would be "the first person to sign in gets
+ * the existing notes".
+ */
+export function claimableLocalWorkspace(email: string, configured = process.env.RASPBERRY_OWNER_EMAIL): boolean {
+  const owner = (configured ?? "").trim().toLowerCase();
+  return owner.length > 0 && owner === email.trim().toLowerCase();
+}
+
+/**
  * Finds or creates the local account for a provider identity.
  *
  * A single-owner installation still provisions a workspace per user id rather than
@@ -217,6 +230,31 @@ export async function ensureAccount(
 
   const userId = randomUUID();
   const workspaceId = randomUUID();
+
+  // Claiming the existing local notes before creating a new workspace, and only for the
+  // address the operator named. Without this, the first real sign-in on a machine that
+  // already has `data/raspberry.sqlite` would provision a fresh empty workspace and the
+  // notes written until now would be unreachable behind any account.
+  //
+  // Scoped to `LOCAL_WORKSPACE_ID` specifically, never to "any workspace with an owner",
+  // so this cannot become a way to adopt somebody else's pages.
+  if (claimableLocalWorkspace(identity.email)) {
+    const [owner] = await sql.query("SELECT user_id FROM memberships WHERE workspace_id=$1 AND role='owner' LIMIT 1", [LOCAL_WORKSPACE_ID]);
+    if (owner) {
+      const adopted = String(owner.user_id);
+      await sql.query("UPDATE users SET display_name=$1 WHERE id=$2", [identity.displayName ?? identity.email, adopted]);
+      await sql.query("INSERT INTO accounts(id,user_id,provider,subject,email,display_name,created_at,last_login_at) VALUES($1,$2,'google',$3,$4,$5,$6,$6)", [
+        randomUUID(),
+        adopted,
+        identity.subject,
+        identity.email,
+        identity.displayName,
+        now.toISOString(),
+      ]);
+      return { userId: adopted, workspaceId: LOCAL_WORKSPACE_ID, created: true };
+    }
+  }
+
   await sql.query("INSERT INTO users(id,display_name) VALUES($1,$2)", [userId, identity.displayName ?? identity.email]);
   await sql.query("INSERT INTO workspaces(id,name) VALUES($1,$2)", [workspaceId, "Personal workspace"]);
   await sql.query("INSERT INTO memberships(user_id,workspace_id,role) VALUES($1,$2,'owner')", [userId, workspaceId]);

@@ -5,6 +5,7 @@ import { migrate } from "../src/server/migrations";
 import { AppError } from "../src/server/service";
 import { beginLogin, completeCallback, completeLogin, resendCode, type CallbackInput } from "../src/server/auth/login";
 import { verifySession } from "../src/server/auth/session-store";
+import { RaspberryService } from "../src/server/service";
 
 process.env.GOOGLE_CLIENT_ID = "client-id.apps.googleusercontent.com";
 process.env.GOOGLE_CLIENT_SECRET = "client-secret";
@@ -272,6 +273,31 @@ test("removing an address from the allowlist refuses a code that was already sen
   }
 });
 
+test("the owner address adopts notes that already exist, and only that address", async () => {
+  const database = await fixture();
+  await new RaspberryService(database).seed();
+
+  // A different address on the same machine gets a workspace of its own.
+  process.env.RASPBERRY_OWNER_EMAIL = "somebody-else@example.com";
+  const other = await startAndCallback(database, { fetchImpl: google({ subject: "google-subject-other" }) });
+  const otherLogin = await completeLogin(database, { challengeId: other.challengeId, code: codeFrom(other.captured[0].text), ip: null, userAgent: null });
+  const otherSession = await verifySession(database, otherLogin.token, { touch: false });
+  assert.equal(otherSession.ok, true);
+  if (otherSession.ok) assert.notEqual(otherSession.session.workspaceId, "00000000-0000-4000-8000-000000000002", "a non-owner address never adopts the local notes");
+
+  // The named owner lands in the workspace the notes are already in.
+  process.env.RASPBERRY_OWNER_EMAIL = ALLOWED;
+  try {
+    const owner = await startAndCallback(database, { fetchImpl: google({ subject: "google-subject-owner" }) });
+    const ownerLogin = await completeLogin(database, { challengeId: owner.challengeId, code: codeFrom(owner.captured[0].text), ip: null, userAgent: null });
+    const ownerSession = await verifySession(database, ownerLogin.token, { touch: false });
+    assert.equal(ownerSession.ok, true);
+    if (ownerSession.ok) assert.equal(ownerSession.session.workspaceId, "00000000-0000-4000-8000-000000000002", "the owner address lands in the existing workspace");
+  } finally {
+    delete process.env.RASPBERRY_OWNER_EMAIL;
+  }
+});
+
 test("resending is rate limited rather than free", async () => {
   const database = await fixture();
   const { challengeId } = await startAndCallback(database);
@@ -282,7 +308,7 @@ test("resending is rate limited rather than free", async () => {
   );
   assert.equal(captured.length, 0);
 
-  // After the cooldown a second code is issued, and the previous one stops working.
+  // After the cooldown a second code is issued.
   const later = new Date(Date.now() + 61_000);
   const { captured: fresh } = { captured };
   await resendCode(database, { challengeId, ip: null, now: later, mailer: mailer(fresh) });

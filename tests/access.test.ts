@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { HOSTED_AUTH_PENDING, hostedTransportError, requestAccessError } from "../src/server/access";
+import { hostedTransportError, requestAccessError } from "../src/server/access";
 
 const HOSTED = { publicOrigin: "https://raspberry.mashina.ai" };
 
@@ -105,17 +105,27 @@ test("hosted transport rejects an extra origin that is not https", () => {
   assert.notEqual(hostedTransportError(h({ host: "raspberry.mashina.ai" }), "GET", options), null);
 });
 
-test("session mode never admits a transport-valid request", () => {
+test("session mode admits a transport-valid request and leaves identity to resolveActor", () => {
+  // This test used to assert the opposite: that every hosted request was refused
+  // outright. That was true while `requestAccessError` doubled as the auth gate. The
+  // gate is now `resolveActor`, and this asserts the boundary between the two — a
+  // valid transport passes here, and identity is decided one layer in.
   withEnv({ RASPBERRY_AUTH_MODE: "session", RASPBERRY_PUBLIC_ORIGIN: "https://raspberry.mashina.ai" }, () => {
-    assert.equal(requestAccessError(h({ host: "raspberry.mashina.ai" }), "GET"), HOSTED_AUTH_PENDING);
-    assert.equal(requestAccessError(h({ host: "raspberry.mashina.ai", origin: "https://raspberry.mashina.ai" }), "POST"), HOSTED_AUTH_PENDING);
+    assert.equal(requestAccessError(h({ host: "raspberry.mashina.ai" }), "GET"), null);
+    assert.equal(requestAccessError(h({ host: "raspberry.mashina.ai", origin: "https://raspberry.mashina.ai" }), "POST"), null);
+  });
+});
+
+test("session mode still refuses a cross-origin mutation before identity is considered", () => {
+  withEnv({ RASPBERRY_AUTH_MODE: "session", RASPBERRY_PUBLIC_ORIGIN: "https://raspberry.mashina.ai" }, () => {
+    assert.notEqual(requestAccessError(h({ host: "raspberry.mashina.ai", origin: "https://evil.example" }), "POST"), null);
+    assert.notEqual(requestAccessError(h({ host: "raspberry.mashina.ai" }), "POST"), null, "a mutation with no Origin is refused");
   });
 });
 
 test("session mode reports a missing public origin instead of hanging open", () => {
   withEnv({ RASPBERRY_AUTH_MODE: "session", RASPBERRY_PUBLIC_ORIGIN: undefined }, () => {
     const error = requestAccessError(h({ host: "raspberry.mashina.ai" }), "GET");
-    assert.notEqual(error, null);
-    assert.notEqual(error, HOSTED_AUTH_PENDING);
+    assert.notEqual(error, null, "transport validity still requires a configured origin");
   });
 });

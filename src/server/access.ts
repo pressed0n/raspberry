@@ -3,17 +3,20 @@ import { localAccessError } from "./local-access";
 /**
  * How requests are admitted at the transport layer.
  *
- * - `local`   : loopback-only. This is the only mode that can currently serve
- *               data. It is what `pnpm dev` / `pnpm preview` select.
- * - `session` : the hosted path (public domain, TLS, Google sign-in + email
- *               code). The transport checks below are reviewed and tested, but
- *               the mode refuses every request until session authentication
- *               exists, so it cannot be opened by accident.
+ * - `local`   : loopback-only. It is what `pnpm dev` / `pnpm preview` select.
+ * - `session` : the hosted path (public domain, TLS, Google sign-in + email code).
+ *
+ * This module answers **one** question: is this request even allowed to reach the
+ * application? It does not answer "who is calling" and it does not answer "are they
+ * signed in". Authentication lives in `session.ts`, and the hosted transport checks
+ * below are what make that decision meaningful — a session cookie travelling over
+ * plaintext, or arriving from a foreign origin, is refused before it is looked up.
+ *
+ * The separation matters. Until sessions existed this function returned a permanent
+ * "hosted access pending" refusal, so it doubled as the auth gate. Removing that
+ * refusal had to happen in the same change as real session verification, never before.
  */
 export type AccessMode = "local" | "session";
-
-export const HOSTED_AUTH_PENDING =
-  "Hosted access is disabled until session authentication is implemented.";
 
 export function accessMode(): AccessMode {
   return process.env.RASPBERRY_AUTH_MODE === "session" ? "session" : "local";
@@ -125,8 +128,11 @@ export function requestAccessError(
   method: string,
   options?: HostedAccessOptions,
 ): string | null {
+  // Local mode keeps the loopback guard exactly as it was: that function is the one
+  // security boundary with its own tests, and it is not worth rewriting to fit a shape.
   if (accessMode() === "local") return localAccessError(headers, method);
-  const transport = hostedTransportError(headers, method, options ?? configuredHostedOptions());
-  if (transport !== null) return transport;
-  return HOSTED_AUTH_PENDING;
+  // Hosted mode is a transport decision only. Admission by identity happens in
+  // `resolveActor`, and the proxy refuses a request with no session cookie before it
+  // reaches a handler.
+  return hostedTransportError(headers, method, options ?? configuredHostedOptions());
 }

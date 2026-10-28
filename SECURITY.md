@@ -1,41 +1,79 @@
 # Security status
 
-Raspberry v0.1 is a local development prototype. It is not ready to host private data over the internet.
+Raspberry is a working notes application with two access modes. Local mode is suitable
+for one machine. Hosted mode is implemented but has not survived a real exposure yet —
+treat the first weeks on a public address as a trial, not a settled deployment.
 
 ## Access modes
 
-The access guard has exactly two modes, selected by `RASPBERRY_AUTH_MODE`.
+Selected by `RASPBERRY_AUTH_MODE`.
 
-- **`local`** (default, and the only mode that can serve data today). Loopback only. The Host header must match a loopback allow-listed value, and mutating browser requests must carry an allow-listed `Origin`. A tunnel or reverse proxy will fail this check by design; do not rewrite Host headers to get around it.
-- **`session`** (the hosted path: public domain, TLS, Google sign-in plus an email code). The transport checks are implemented and tested: the public origin must be a bare `https` origin, the Host header must be allow-listed, mutations must carry an allow-listed `Origin` and must not be `sec-fetch-site: cross-site`, and a request a trusted proxy marked as plaintext is refused. **Every request is then refused with `auth_not_configured`**, because no session store exists yet.
+- **`local`** — loopback only. The Host header must match a loopback allow-listed value,
+  and mutating browser requests must carry an allow-listed `Origin`. Selected by
+  `pnpm dev` and `pnpm preview`, which set `RASPBERRY_LOCAL_DEV=1`.
 
-That second mode is a reviewed seam, not a feature. Opening Raspberry to the internet requires replacing one return value in `src/server/access.ts` and implementing `resolveActor` in `src/server/session.ts`. `pnpm start` refuses to boot in session mode for the same reason.
+- **`session`** — hosted. Google sign-in proves identity, a 6-digit code emailed to the
+  same address proves the inbox, and the resulting session cookie admits the request.
+  Transport rules: bare `https` public origin, Host allow-list, Origin allow-list, no
+  cross-site mutations, and plaintext forwards rejected.
 
-## Current boundaries
+`pnpm start` validates the whole set at boot and exits with a named list of what is
+missing. A hosted deployment that cannot authenticate anyone does not start.
 
-- Web launchers bind to `127.0.0.1`.
-- API handlers repeat access checks independently of the Next.js proxy, so a proxy bypass alone does not grant access.
-- Callers are resolved once, in `api()`, and passed to every handler as an `Actor`. No route imports a module-level identity any more.
-- Shared service operations enforce workspace membership, including read-only viewer restrictions.
-- Structured input validation, bounded request bodies, revision preconditions, transactionally stored history, and durable mutation receipts protect document operations.
-- In-process rate limiting bounds reads and writes. It also caps a runaway client save loop, and it is per-process, so it is not a substitute for a proxy-level limiter.
-- Every API response carries an `X-Request-Id` that is also written to the server log with failures.
-- MCP defaults to read-only. Enabling local MCP writes trusts that process as the local development owner.
-- The browser stores unsaved draft copies on the device. Treat browser profiles and backups as private data.
+## What the two factors are, honestly
 
-These controls do not replace authentication. Any trusted local process can impersonate an HTTP client.
+Google is the first factor; the emailed code is the second. If the allow-listed address
+*is* the Gmail account, then one compromise of that account defeats both — it is
+"Google plus Google". Pointing `RASPBERRY_ALLOWED_EMAILS` at a different mailbox provider
+makes them genuinely independent channels.
 
-## Before remote access
+The allowlist is mandatory and re-checked when the code is submitted, so removing an
+address takes effect on an in-flight login rather than at the next session.
 
-Complete Google-plus-email-code enforcement, session lifecycle/recovery, account invitations, OAuth grants for MCP, per-client/page authorization, audit/retention policies, dependency review, and encrypted off-device recovery. Verify the host's firewall and actual IPv4/IPv6/container port exposure. Test two real users and revoke sessions/grants during tests.
+## Sessions
 
-Known gaps that are deferred rather than fixed:
+- The cookie holds `<sessionId>.<secret>`. Only SHA-256 of the secret is stored, so a
+  copy of the database cannot be replayed as a login.
+- Two clocks: a 12-hour idle window that slides on use, and a 30-day absolute deadline
+  that never moves.
+- The role is read from `memberships` on every request, so a downgrade is immediate. A
+  session whose membership has gone is refused rather than defaulted.
+- Sign-out revokes the row. Clearing the cookie alone would leave a copied cookie working.
+- Cookie name is `__Host-` prefixed, so it cannot be set or overwritten by a subdomain.
 
-- Idempotency receipts and rate limits still share one client namespace (`"browser"`) for all browser traffic. Both must key on the session once sessions exist.
-- There is no audit trail recording which client wrote which page. `mutations` has no timestamp column, so receipts cannot be expired retroactively either.
-- No `Content-Security-Policy` nonces yet. The policy permits inline framework scripts/styles, and development-only eval; WebSockets are allowed only in development builds, and HSTS is emitted only for a hosted build.
-- No per-page or per-database permissions. `access()` is workspace-scoped.
+## Login codes
+
+Six digits from `crypto.randomInt`, stored as salted scrypt, compared with
+`timingSafeEqual`. Five-minute lifetime, five attempts, single use, 60-second resend
+cooldown, five sends maximum. The attempt counter lives in the database, so a restart
+does not reset it. A new code invalidates the previous one.
+
+## What is recorded
+
+`auth_events` keeps sign-in outcomes with **hashed** email and IP — never the raw
+values, and never a code or token. Rejections are recorded even though the request
+transaction does not carry a session; that ordering is deliberate and tested.
+
+## What is not defended yet
+
+- **No server-side session revocation UI.** Revocation exists as a function and on
+  logout, but there is no "sign out all devices" control.
+- **Rate limiting is per-process and in memory.** It is a speed bump. The real bound on
+  code guessing is the per-challenge attempt counter.
+- **No WebAuthn.** A hardware key would be a strictly better second factor than email.
+- **No CSP nonces.** The policy is a static allow-list; the login page deliberately uses
+  a plain link to Google rather than Google's script, so `script-src` stays first-party.
+- **MCP over HTTP is not authenticated.** The stdio server still uses the local actor.
+  A hosted MCP endpoint needs its own token store, and does not exist yet.
+
+## Deployment floor, outside this repository
+
+TLS termination (Caddy or nginx), `RASPBERRY_TRUST_PROXY=1`, key-only SSH with no root
+login, a host firewall allowing only 80/443, unattended security updates, and backups
+kept **off** the machine. An AGPL source repository plus an unpatched host is a
+published exploit, not a distribution.
 
 ## Reporting
 
-The repository is initialised locally; no public remote has been published yet. Before publishing, configure a private reporting channel and document supported releases. Do not commit credentials, `.env.local`, the `data/` directory, or backup files to source control.
+No private reporting channel is published yet. Do not commit credentials, `.env.local`,
+`data/`, or backup files — CI fails the build if any of those are ever tracked.

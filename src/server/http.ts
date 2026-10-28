@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
 import { accessMode, requestAccessError } from "./access";
-import { rateLimitError } from "./rate-limit";
+import { rateLimitError, type RateLimitOptions } from "./rate-limit";
 import { AppError, type Actor } from "./service";
 import { resolveActor } from "./session";
 
@@ -19,11 +19,45 @@ export async function api(request: Request, work: (context: ApiContext) => Promi
     const result = await work({ actor, requestId });
     return json(result, 200, requestId);
   } catch (error) {
-    if (error instanceof AppError) return json({ error: { code: error.code, message: error.message } }, error.status, requestId);
-    if (error instanceof z.ZodError) return json({ error: { code: "invalid_input", message: error.issues[0]?.message ?? "Invalid input." } }, 400, requestId);
-    console.error("Raspberry request failed", requestId, error instanceof Error ? error.name : "UnknownError");
-    return json({ error: { code: "internal_error", message: "Something went wrong. Your draft has been kept." } }, 500, requestId);
+    return fail(error, requestId);
   }
+}
+
+/**
+ * The same envelope for endpoints that exist *before* anyone is signed in.
+ *
+ * Transport guard and rate limit still apply — those are what stop the sign-in
+ * endpoints from being a free brute-force surface — but there is no actor to resolve,
+ * because resolving one is the thing being attempted. Handlers may return a `Response`
+ * directly, which is how the OAuth endpoints redirect.
+ */
+export async function publicApi(
+  request: Request,
+  work: (context: { requestId: string }) => Promise<Response | unknown>,
+  options?: RateLimitOptions,
+) {
+  const requestId = randomUUID();
+  try {
+    const denied = requestAccessError(request.headers, request.method);
+    if (denied) throw new AppError(403, accessMode() === "local" ? "local_only" : "access_denied", denied);
+    const limited = rateLimitError(request.headers, request.method, Date.now(), options);
+    if (limited) throw new AppError(429, "rate_limited", limited);
+    const result = await work({ requestId });
+    if (result instanceof Response) {
+      result.headers.set("X-Request-Id", requestId);
+      return result;
+    }
+    return json(result, 200, requestId);
+  } catch (error) {
+    return fail(error, requestId);
+  }
+}
+
+function fail(error: unknown, requestId: string) {
+  if (error instanceof AppError) return json({ error: { code: error.code, message: error.message } }, error.status, requestId);
+  if (error instanceof z.ZodError) return json({ error: { code: "invalid_input", message: error.issues[0]?.message ?? "Invalid input." } }, 400, requestId);
+  console.error("Raspberry request failed", requestId, error instanceof Error ? error.name : "UnknownError");
+  return json({ error: { code: "internal_error", message: "Something went wrong. Your draft has been kept." } }, 500, requestId);
 }
 function json(body: unknown, status: number, requestId: string) {
   return NextResponse.json(body, { status, headers: { "Cache-Control": "no-store", "X-Request-Id": requestId } });
