@@ -22,9 +22,9 @@ test("a fresh database records every migration once", async () => {
   const database = await openDatabase("file::memory:");
   assert.deepEqual(await versionRows(database), [], "the baseline DDL no longer writes a version row on its own");
   const first = await migrate(database);
-  assert.deepEqual(first.applied, [1, 2]);
-  assert.equal(first.version, 2);
-  assert.deepEqual(await versionRows(database), [1, 2]);
+  assert.deepEqual(first.applied, [1, 2, 3]);
+  assert.equal(first.version, 3);
+  assert.deepEqual(await versionRows(database), [1, 2, 3]);
 });
 
 test("migrating again applies nothing", async () => {
@@ -32,7 +32,7 @@ test("migrating again applies nothing", async () => {
   await migrate(database);
   const second = await migrate(database);
   assert.deepEqual(second.applied, []);
-  assert.equal(second.version, 2);
+  assert.equal(second.version, 3);
 });
 
 test("pending migrations run in version order, not declaration order", async () => {

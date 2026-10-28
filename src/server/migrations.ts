@@ -68,7 +68,55 @@ const childPageLinks: Migration = {
   },
 };
 
-export const migrations: readonly Migration[] = [baseline, childPageLinks];
+/**
+ * Authentication tables.
+ *
+ * Deliberately additive only: every statement creates a new object, and nothing
+ * here alters an existing table. `ALTER TABLE ... ADD COLUMN` with a constraint is
+ * not portable across SQLite and Postgres, and column-presence detection differs
+ * between them (`PRAGMA table_info` versus `information_schema`), so an additive
+ * migration is the one shape that behaves identically on both engines.
+ *
+ * Timestamps stay ISO-8601 TEXT to match the rest of the schema. Comparison is
+ * lexicographic, which is correct for this format, and every expiry decision is
+ * also re-checked in JavaScript rather than trusted to the query.
+ */
+const authSchema: Migration = {
+  version: 3,
+  name: "authentication: accounts, sessions, login challenges, audit events",
+  async up(sql) {
+    // A provider identity. One row per (provider, subject) — Google's `sub` is the
+    // subject, never the email, because an email can be reassigned at a provider
+    // and a subject cannot.
+    for (const statement of [
+      "CREATE TABLE IF NOT EXISTS accounts (id TEXT PRIMARY KEY, user_id TEXT NOT NULL REFERENCES users(id), provider TEXT NOT NULL, subject TEXT NOT NULL, email TEXT NOT NULL, display_name TEXT, created_at TEXT NOT NULL, last_login_at TEXT, disabled_at TEXT)",
+      "CREATE UNIQUE INDEX IF NOT EXISTS accounts_provider_subject ON accounts(provider, subject)",
+      "CREATE UNIQUE INDEX IF NOT EXISTS accounts_user_provider ON accounts(user_id, provider)",
+      "CREATE INDEX IF NOT EXISTS accounts_email ON accounts(email)",
+      // An opaque session. `token_hash` is SHA-256 of the secret in the cookie, so a
+      // copy of this table cannot be replayed as a login.
+      "CREATE TABLE IF NOT EXISTS sessions (id TEXT PRIMARY KEY, token_hash TEXT NOT NULL, user_id TEXT NOT NULL REFERENCES users(id), workspace_id TEXT NOT NULL REFERENCES workspaces(id), created_at TEXT NOT NULL, last_seen_at TEXT NOT NULL, idle_expires_at TEXT NOT NULL, absolute_expires_at TEXT NOT NULL, revoked_at TEXT, revoked_reason TEXT, ip_hash TEXT, user_agent_hash TEXT)",
+      "CREATE UNIQUE INDEX IF NOT EXISTS sessions_token ON sessions(token_hash)",
+      "CREATE INDEX IF NOT EXISTS sessions_user ON sessions(user_id)",
+      "CREATE INDEX IF NOT EXISTS sessions_expiry ON sessions(idle_expires_at)",
+      // The OAuth round trip and the emailed code share one row, so the second factor
+      // is bound to the identity the first factor proved. A code cannot be replayed
+      // against a different account because the challenge names the subject.
+      "CREATE TABLE IF NOT EXISTS login_challenges (id TEXT PRIMARY KEY, state_hash TEXT NOT NULL, pkce_verifier TEXT NOT NULL, google_sub TEXT, email TEXT, display_name TEXT, code_hash TEXT, code_salt TEXT, attempts INTEGER NOT NULL DEFAULT 0, sends INTEGER NOT NULL DEFAULT 0, last_sent_at TEXT, created_at TEXT NOT NULL, expires_at TEXT NOT NULL, consumed_at TEXT)",
+      "CREATE UNIQUE INDEX IF NOT EXISTS challenges_state ON login_challenges(state_hash)",
+      "CREATE INDEX IF NOT EXISTS challenges_expiry ON login_challenges(expires_at)",
+      // Hashed email and IP only. A login log that stores raw addresses is a second
+      // copy of the user list, which is exactly what an attacker wants from a notes
+      // server. Codes are never recorded here.
+      "CREATE TABLE IF NOT EXISTS auth_events (id TEXT PRIMARY KEY, at TEXT NOT NULL, kind TEXT NOT NULL, email_hash TEXT, ip_hash TEXT, detail TEXT)",
+      "CREATE INDEX IF NOT EXISTS auth_events_at ON auth_events(at)",
+    ]) {
+      await sql.query(statement);
+    }
+  },
+};
+
+export const migrations: readonly Migration[] = [baseline, childPageLinks, authSchema];
 
 export type MigrationResult = { applied: number[]; version: number };
 
