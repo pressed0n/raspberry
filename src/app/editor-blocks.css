@@ -1,0 +1,87 @@
+/* Keep block spacing outside the painted surface. Containers must not paint
+   their nested blocks, heading margins, or the toggle's expanded children. */
+.bn-editor .bn-block { background-color: transparent; --raspberry-block-background: transparent; }
+.bn-editor .bn-block[data-background-color] { background-color: transparent; }
+.bn-editor [data-background-color="gray"] { --raspberry-block-background: var(--bn-colors-highlights-gray-background); }
+.bn-editor [data-background-color="brown"] { --raspberry-block-background: var(--bn-colors-highlights-brown-background); }
+.bn-editor [data-background-color="red"] { --raspberry-block-background: var(--bn-colors-highlights-red-background); }
+.bn-editor [data-background-color="orange"] { --raspberry-block-background: var(--bn-colors-highlights-orange-background); }
+.bn-editor [data-background-color="yellow"] { --raspberry-block-background: var(--bn-colors-highlights-yellow-background); }
+.bn-editor [data-background-color="green"] { --raspberry-block-background: var(--bn-colors-highlights-green-background); }
+.bn-editor [data-background-color="blue"] { --raspberry-block-background: var(--bn-colors-highlights-blue-background); }
+.bn-editor [data-background-color="purple"] { --raspberry-block-background: var(--bn-colors-highlights-purple-background); }
+.bn-editor [data-background-color="pink"] { --raspberry-block-background: var(--bn-colors-highlights-pink-background); }
+.bn-editor .bn-block-content[data-background-color] { background-color: var(--raspberry-block-background); }
+.bn-editor .bn-block-content { line-height: 1.7; }
+.bn-editor .bn-inline-content { line-height: inherit; }
+
+.bn-editor .bn-block-content[data-content-type="checkListItem"] > div:has(> input) {
+  height: 1.7em;
+  display: flex;
+  align-items: center;
+  flex-shrink: 0;
+}
+.bn-editor .bn-block-content[data-content-type="checkListItem"] > div > input {
+  width: 12px;
+  height: 12px;
+  margin-block: 0;
+}
+
+.bn-editor [data-content-type="heading"] { --level: 23px; }
+.bn-editor [data-content-type="heading"][data-level="2"] { --level: 18px; }
+.bn-editor [data-content-type="heading"][data-level="3"] { --level: 15px; }
+.bn-editor [data-content-type="heading"][data-level="4"] { --level: 14px; }
+.bn-editor [data-content-type="heading"][data-level="5"],
+.bn-editor [data-content-type="heading"][data-level="6"] { --level: 13px; }
+.bn-editor .bn-block-content[data-content-type="heading"] {
+  margin-block: 0;
+  padding-block: 3px;
+  line-height: 1.5;
+}
+.bn-editor .bn-block-outer:has(> .bn-block > .bn-block-content[data-content-type="heading"]),
+.bn-editor .bn-block-outer:has(> .bn-block > .bn-toggle-frame > .bn-toggle-slot > .bn-block-content[data-content-type="heading"]) {
+  margin-block: 18px 6px;
+}
+.bn-editor .bn-block-outer > .bn-block > .bn-toggle-frame:has(> .bn-toggle-slot > .bn-block-content[data-content-type="heading"]) {
+  padding-top: 0;
+  align-items: start;
+}
+.bn-editor .bn-toggle-frame { --toggle-line-height: 34.5px; }
+.bn-editor .bn-toggle-frame:has(> .bn-toggle-slot > [data-level="2"]) { --toggle-line-height: 27px; }
+.bn-editor .bn-toggle-frame:has(> .bn-toggle-slot > [data-level="3"]) { --toggle-line-height: 22.5px; }
+.bn-editor .bn-toggle-frame:has(> .bn-toggle-slot > [data-level="4"]) { --toggle-line-height: 21px; }
+.bn-editor .bn-toggle-frame:has(> .bn-toggle-slot > [data-level="5"], > .bn-toggle-slot > [data-level="6"]) { --toggle-line-height: 19.5px; }
+.bn-editor .bn-toggle-button {
+  display: grid;
+  place-items: center;
+  height: calc(var(--toggle-line-height, 22.1px) + 6px);
+  width: 24px;
+  padding: 3px;
+  background-color: var(--raspberry-block-background, transparent);
+  /* Rotate only the icon, so an open toggle keeps the same row geometry. */
+  transform: none;
+}
+.bn-editor .bn-toggle-button[aria-expanded="true"] > svg { transform: rotate(90deg); }
+
+.bn-editor .bn-block-content[data-content-type="quote"] {
+  margin-block: 0;
+  padding: 6px 10px;
+}
+.bn-editor .bn-block-outer:has(> .bn-block > [data-content-type="quote"]) { margin-block: 6px; }
+
+.bn-editor .raspberry-callout { padding: 11px 12px; gap: 10px; border-color: #7b887438; }
+.bn-editor .callout-controls { width: 28px; padding-top: 0; gap: 0; }
+.bn-editor .callout-emoji {
+  display: grid;
+  place-items: center;
+  width: 28px;
+  height: var(--callout-first-line, 28.1px); /* First text line plus block padding. */
+  font-size: 21px;
+  line-height: 1;
+  padding: 0;
+}
+.bn-editor .callout-body > [data-node-view-content-react] > .bn-block-outer:first-child,
+.bn-editor .raspberry-column > [data-node-view-content-react] > .bn-block-outer:first-child { margin-top: 0; }
+.bn-editor .raspberry-callout:has(.callout-body > [data-node-view-content-react] > .bn-block-outer:first-child [data-content-type="heading"]) { --callout-first-line: 40.5px; }
+.bn-editor .raspberry-callout:has(.callout-body > [data-node-view-content-react] > .bn-block-outer:first-child [data-content-type="heading"][data-level="2"]) { --callout-first-line: 33px; }
+.bn-editor .raspberry-callout:has(.callout-body > [data-node-view-content-react] > .bn-block-outer:first-child [data-content-type="heading"][data-level="3"]) { --callout-first-line: 28.5px; }
