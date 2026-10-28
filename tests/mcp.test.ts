@@ -47,3 +47,29 @@ test("MCP can create, append, and precisely update blocks through the shared ser
     assert.equal(conflict.isError, true);
   } finally { await client.close(); await server.close(); await database.close(); }
 });
+test("MCP lists and paginates children of one page", async () => {
+  const database = await openDatabase("file::memory:"), service = new RaspberryService(database); await service.seed();
+  const server = createMcpServer(service, localActor("mcp-test"), true), client = new Client({ name: "integration-test", version: "1" });
+  const [a, b] = InMemoryTransport.createLinkedPair();
+  const call = async (name: string, args: Record<string, unknown>) => {
+    const result = await client.callTool({ name, arguments: args });
+    assert.notEqual(result.isError, true, JSON.stringify(result));
+    return JSON.parse((result.content as { text: string }[])[0].text);
+  };
+  const titles = (result: { pages: { title: string }[] }) => result.pages.map((page) => page.title).sort();
+  try {
+    await server.connect(a); await client.connect(b);
+    const parent = (await call("create_page", { title: "Parent", mutationId: crypto.randomUUID() })).page;
+    for (const title of ["First child", "Second child"]) await call("create_page", { title, parentId: parent.id, mutationId: crypto.randomUUID() });
+    assert.deepEqual(titles(await call("list_children", { parentId: parent.id })), ["First child", "Second child"]);
+    // Pagination walks the children themselves, not a capped listing they were filtered out of.
+    const first = await call("list_children", { parentId: parent.id, limit: 1, offset: 0 });
+    const second = await call("list_children", { parentId: parent.id, limit: 1, offset: 1 });
+    assert.deepEqual(titles({ pages: [...first.pages, ...second.pages] }), ["First child", "Second child"]);
+    const roots = await call("list_children", { parentId: null });
+    assert.ok(roots.pages.some((page: { id: string }) => page.id === parent.id));
+    assert.ok(!roots.pages.some((page: { title: string }) => page.title === "First child"));
+    const missing = await client.callTool({ name: "list_children", arguments: { parentId: crypto.randomUUID() } });
+    assert.equal(missing.isError, true, "an unknown parent is an error, not an empty list");
+  } finally { await client.close(); await server.close(); await database.close(); }
+});

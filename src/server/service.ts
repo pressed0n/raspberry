@@ -109,11 +109,24 @@ export class RaspberryService {
       return Number(row?.ok ?? 0) === 1;
     });
   }
-  list(actor: Actor, options: { trash?: boolean; query?: string; limit?: number; offset?: number } = {}) {
+  list(actor: Actor, options: { trash?: boolean; query?: string; parentId?: string | null; limit?: number; offset?: number } = {}) {
     return this.database.transaction(async (sql) => {
       await access(sql, actor);
+      // Scoping by parent must happen in SQL. Filtering an already-capped result set
+      // silently lost children once a workspace passed the row limit, while still
+      // advertising pagination over that truncated set.
+      if (options.parentId) await find(sql, actor, options.parentId);
       const query = (options.query ?? "").trim().slice(0, 200).toLowerCase().replace(/[\\%_]/g, "\\$&");
-      const rows = await sql.query(`SELECT * FROM pages WHERE workspace_id=$1 AND deleted_at IS ${options.trash ? "NOT " : ""}NULL AND (LOWER(title) LIKE $2 ESCAPE '\\' OR LOWER(plain_text) LIKE $2 ESCAPE '\\') ORDER BY created_at,id LIMIT $3 OFFSET $4`, [actor.workspaceId, `%${query}%`, Math.min(200, Math.max(1, options.limit ?? 200)), Math.max(0, options.offset ?? 0)]);
+      // Placeholder numbers follow the order values are pushed: the SQLite adapter
+      // rewrites $N positionally, so a hole in the numbering binds the wrong value.
+      const values: (string | number | null)[] = [actor.workspaceId, `%${query}%`];
+      const where = ["workspace_id=$1", `deleted_at IS ${options.trash ? "NOT " : ""}NULL`, "(LOWER(title) LIKE $2 ESCAPE '\\' OR LOWER(plain_text) LIKE $2 ESCAPE '\\')"];
+      if (options.parentId !== undefined) {
+        if (options.parentId === null) where.push("parent_id IS NULL");
+        else { values.push(options.parentId); where.push(`parent_id=$${values.length}`); }
+      }
+      values.push(Math.min(200, Math.max(1, options.limit ?? 200)), Math.max(0, options.offset ?? 0));
+      const rows = await sql.query(`SELECT * FROM pages WHERE ${where.join(" AND ")} ORDER BY created_at,id LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
       return rows.map(summary);
     });
   }
@@ -175,9 +188,17 @@ export class RaspberryService {
         const parent = await find(sql, actor, String(current.parent_id), true);
         if (parent.deleted_at) throw new AppError(409, "parent_in_trash", "Restore the parent page first.");
       }
-      const rows = await sql.query("UPDATE pages SET deleted_at=NULL,trash_batch=NULL,revision=revision+1,updated_at=$1 WHERE workspace_id=$2 AND trash_batch=$3 RETURNING *", [new Date().toISOString(), actor.workspaceId, current.trash_batch]);
+      const now = new Date().toISOString(), batch = current.trash_batch == null ? null : String(current.trash_batch);
+      // Batches are matched by identifier. A page trashed by an older build (or by
+      // hand) carries no batch, so matching on null deleted nothing and the non-null
+      // assertion below then crashed while reading an absent row.
+      const rows = batch
+        ? await sql.query("UPDATE pages SET deleted_at=NULL,trash_batch=NULL,revision=revision+1,updated_at=$1 WHERE workspace_id=$2 AND trash_batch=$3 AND deleted_at IS NOT NULL RETURNING *", [now, actor.workspaceId, batch])
+        : await sql.query("UPDATE pages SET deleted_at=NULL,trash_batch=NULL,revision=revision+1,updated_at=$1 WHERE id=$2 AND workspace_id=$3 AND deleted_at IS NOT NULL RETURNING *", [now, id, actor.workspaceId]);
       for (const item of rows) await snapshot(sql, item, actor);
-      return page(rows.find((item) => item.id === id)!);
+      const restored = rows.find((item) => String(item.id) === id);
+      if (!restored) throw new AppError(409, "restore_failed", "This page could not be restored. Reload and try again.");
+      return page(restored);
     });
   }
   history(actor: Actor, id: string): Promise<Revision[]> {

@@ -1,23 +1,23 @@
 "use client";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { request, RequestError } from "@/lib/api-client";
-import { patchPageSchema, type Page, type PatchPageInput } from "@/lib/document";
-type Draft = Pick<Page, "title" | "icon" | "content" | "favorite">;
+import { request } from "@/lib/api-client";
+import { patchPageSchema, type Page } from "@/lib/document";
+import { edited, hasUnsavedChanges, initialSync, recovered, runSaveLoop, selectDraft, type Draft, type SyncState } from "@/lib/draft-sync";
 type Status = "saved" | "pending" | "saving" | "error" | "conflict";
-const selectDraft = ({ title, icon, content, favorite }: Page): Draft => ({ title, icon, content, favorite });
 
 export function usePageDraft(initial: Page, onSaved: (page: Page) => void) {
   const [draft, setDraft] = useState<Draft>(() => selectDraft(initial));
   const [status, setStatus] = useState<Status>("saved");
   const [message, setMessage] = useState("");
   const [contentVersion, setContentVersion] = useState(0);
-  const latest = useRef(draft), persisted = useRef(initial), acknowledged = useRef(JSON.stringify(draft));
-  const blocked = useRef(false), inFlight = useRef<PatchPageInput | null>(null), running = useRef<Promise<boolean> | null>(null);
+  const sync = useRef<SyncState>(initialSync(initial)), persisted = useRef(initial);
+  const blocked = useRef(false), running = useRef<Promise<boolean> | null>(null);
   const onSavedRef = useRef(onSaved); onSavedRef.current = onSaved;
   const storageKey = `raspberry:draft:${initial.id}`;
 
+  const commit = useCallback((next: SyncState) => { sync.current = next; persisted.current = next.persisted; setDraft(next.latest); }, []);
   const keepDraft = useCallback(() => {
-    try { localStorage.setItem(storageKey, JSON.stringify({ baseRevision: persisted.current.revision, draft: latest.current })); }
+    try { localStorage.setItem(storageKey, JSON.stringify({ baseRevision: sync.current.persisted.revision, draft: sync.current.latest })); }
     catch { /* Server retry remains available if browser storage is full or disabled. */ }
   }, [storageKey]);
   useEffect(() => {
@@ -27,63 +27,60 @@ export function usePageDraft(initial: Page, onSaved: (page: Page) => void) {
       const value = JSON.parse(raw);
       const restored = { ...selectDraft(initial), ...value.draft };
       if (!patchPageSchema.safeParse({ ...restored, expectedRevision: value.baseRevision, mutationId: crypto.randomUUID() }).success) return;
-      latest.current = restored; setDraft(restored); setContentVersion((version) => version + 1);
+      commit(recovered(sync.current, restored)); setContentVersion((version) => version + 1);
       if (value.baseRevision !== initial.revision) { blocked.current = true; setStatus("conflict"); setMessage("A recovered draft differs from the saved version. Download it or load the saved page."); }
       else { setStatus("pending"); setMessage("Recovered your unsaved draft."); }
     } catch { /* An invalid local recovery record must not prevent opening a page. */ }
   }, [initial.revision, storageKey]);
 
   const update = useCallback((changes: Partial<Draft>) => {
-    latest.current = { ...latest.current, ...changes }; setDraft(latest.current); keepDraft();
+    commit(edited(sync.current, changes)); keepDraft();
     if (!blocked.current) setStatus("pending");
-  }, [keepDraft]);
+  }, [commit, keepDraft]);
 
   const flush = useCallback((): Promise<boolean> => {
     if (running.current) return running.current;
     if (blocked.current) return Promise.resolve(false);
     const work = async () => {
-      while (inFlight.current || JSON.stringify(latest.current) !== acknowledged.current) {
-        inFlight.current ??= { ...latest.current, expectedRevision: persisted.current.revision, mutationId: crypto.randomUUID() };
-        const payload = inFlight.current;
-        setStatus("saving");
-        try {
+      const before = sync.current.persisted;
+      const { outcome, error } = await runSaveLoop(
+        { get: () => sync.current, set: commit },
+        async (payload) => {
+          setStatus("saving");
           const { page } = await request<{ page: Page }>(`/api/pages/${initial.id}`, { method: "PATCH", body: JSON.stringify(payload) });
-          persisted.current = page;
-          acknowledged.current = JSON.stringify(selectDraft(page));
-          // Empty titles are normalized on the server; avoid an endless resave loop.
-          if (JSON.stringify(latest.current) === JSON.stringify({ title: payload.title, icon: payload.icon, content: payload.content, favorite: payload.favorite })) {
-            latest.current = selectDraft(page); setDraft(latest.current);
-          }
-          inFlight.current = null; onSavedRef.current(page);
-          if (JSON.stringify(latest.current) === acknowledged.current) { try { localStorage.removeItem(storageKey); } catch {} }
-          else keepDraft();
-        } catch (error) {
-          keepDraft();
-          if (error instanceof RequestError && error.status === 409) { blocked.current = true; setStatus("conflict"); }
-          else setStatus("error");
-          setMessage(error instanceof Error ? error.message : "Unable to save. Your draft is kept on this device.");
-          return false;
-        }
+          return page;
+        },
+      );
+      if (outcome === "saved") {
+        if (sync.current.persisted !== before) onSavedRef.current(sync.current.persisted);
+        try { localStorage.removeItem(storageKey); } catch { /* The confirmed draft is already in memory. */ }
+        setStatus("saved"); setMessage(""); return true;
       }
-      setStatus("saved"); setMessage(""); return true;
+      keepDraft();
+      if (outcome === "conflict") { blocked.current = true; setStatus("conflict"); }
+      else setStatus("error");
+      // "stuck" means saving kept losing races with local edits. Say so rather than
+      // leaving the indicator on "saving" while the loop retries indefinitely.
+      setMessage(outcome === "stuck" ? "Saving keeps returning a different version of this page. Your draft is kept on this device."
+        : error instanceof Error ? error.message : "Unable to save. Your draft is kept on this device.");
+      return false;
     };
     running.current = work().finally(() => { running.current = null; });
     return running.current;
-  }, [initial.id, storageKey, keepDraft]);
+  }, [commit, initial.id, keepDraft, storageKey]);
 
   useEffect(() => {
-    if (status !== "pending") return;
-    const timeout = setTimeout(() => void flush(), 700);
-    return () => clearTimeout(timeout);
-  }, [draft, status, flush]);
-  useEffect(() => {
-    const leave = (event: BeforeUnloadEvent) => {
-      if (JSON.stringify(latest.current) !== acknowledged.current || inFlight.current) { keepDraft(); event.preventDefault(); }
-    };
-    window.addEventListener("beforeunload", leave);
-    return () => window.removeEventListener("beforeunload", leave);
+    const warn = (event: BeforeUnloadEvent) => { if (hasUnsavedChanges(sync.current)) { keepDraft(); event.preventDefault(); } };
+    window.addEventListener("beforeunload", warn); return () => window.removeEventListener("beforeunload", warn);
   }, [keepDraft]);
+  useEffect(() => {
+    if (status !== "pending") return;
+    if (!hasUnsavedChanges(sync.current)) return;
+    const timer = setTimeout(() => { void flush(); }, 700);
+    return () => clearTimeout(timer);
+  }, [draft, flush, status]);
+
   return { draft, status, message, update, flush, persisted, contentVersion,
     replaceDraft: (changes: Partial<Draft>) => { update(changes); setContentVersion((version) => version + 1); },
-    clearRecovery: () => { try { localStorage.removeItem(storageKey); } catch {} } };
+    clearRecovery: () => { try { localStorage.removeItem(storageKey); } catch { /* Nothing to clear. */ } } };
 }
