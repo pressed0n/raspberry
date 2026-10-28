@@ -7,23 +7,29 @@ export interface Sql { query<T extends Record<string, unknown> = Record<string, 
 export interface Database { transaction<T>(work: (sql: Sql) => Promise<T>): Promise<T>; close(): Promise<void>; }
 export const LOCAL_USER_ID = "00000000-0000-4000-8000-000000000001";
 export const LOCAL_WORKSPACE_ID = "00000000-0000-4000-8000-000000000002";
-const schema = `
-CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY);
-CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, display_name TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS workspaces (id TEXT PRIMARY KEY, name TEXT NOT NULL);
-CREATE TABLE IF NOT EXISTS memberships (user_id TEXT REFERENCES users(id), workspace_id TEXT REFERENCES workspaces(id), role TEXT NOT NULL CHECK (role IN ('owner','editor','viewer')), PRIMARY KEY(user_id, workspace_id));
-CREATE TABLE IF NOT EXISTS pages (
+// The baseline is expressed as individual statements rather than one blob so the
+// migration runner can replay it through `sql.query` (which executes a single
+// statement at a time). `openDatabase` still applies the joined form on connect,
+// so a database is usable even if nothing ever calls `migrate()`; the runner then
+// records version 1 and owns everything after it.
+export const baselineStatements: readonly string[] = [
+  "CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY)",
+  "CREATE TABLE IF NOT EXISTS users (id TEXT PRIMARY KEY, display_name TEXT NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS workspaces (id TEXT PRIMARY KEY, name TEXT NOT NULL)",
+  "CREATE TABLE IF NOT EXISTS memberships (user_id TEXT REFERENCES users(id), workspace_id TEXT REFERENCES workspaces(id), role TEXT NOT NULL CHECK (role IN ('owner','editor','viewer')), PRIMARY KEY(user_id, workspace_id))",
+  `CREATE TABLE IF NOT EXISTS pages (
  id TEXT PRIMARY KEY, workspace_id TEXT NOT NULL REFERENCES workspaces(id), parent_id TEXT REFERENCES pages(id),
  title TEXT NOT NULL, icon TEXT NOT NULL, content TEXT NOT NULL, plain_text TEXT NOT NULL,
  favorite INTEGER NOT NULL DEFAULT 0, revision INTEGER NOT NULL DEFAULT 1, schema_version INTEGER NOT NULL DEFAULT 1,
  created_at TEXT NOT NULL, updated_at TEXT NOT NULL, deleted_at TEXT, trash_batch TEXT
-);
-CREATE INDEX IF NOT EXISTS pages_workspace ON pages(workspace_id, deleted_at);
-CREATE INDEX IF NOT EXISTS pages_parent ON pages(parent_id);
-CREATE TABLE IF NOT EXISTS revisions (page_id TEXT NOT NULL REFERENCES pages(id), revision INTEGER NOT NULL, snapshot TEXT NOT NULL, created_at TEXT NOT NULL, client_id TEXT NOT NULL, PRIMARY KEY(page_id, revision));
-CREATE TABLE IF NOT EXISTS mutations (workspace_id TEXT NOT NULL, user_id TEXT NOT NULL, client_id TEXT NOT NULL, mutation_id TEXT NOT NULL, fingerprint TEXT NOT NULL, result TEXT NOT NULL, PRIMARY KEY(workspace_id,user_id,client_id,mutation_id));
-INSERT INTO schema_migrations(version) VALUES (1) ON CONFLICT DO NOTHING;
-`;
+)`,
+  "CREATE INDEX IF NOT EXISTS pages_workspace ON pages(workspace_id, deleted_at)",
+  "CREATE INDEX IF NOT EXISTS pages_parent ON pages(parent_id)",
+  "CREATE TABLE IF NOT EXISTS revisions (page_id TEXT NOT NULL REFERENCES pages(id), revision INTEGER NOT NULL, snapshot TEXT NOT NULL, created_at TEXT NOT NULL, client_id TEXT NOT NULL, PRIMARY KEY(page_id, revision))",
+  "CREATE TABLE IF NOT EXISTS mutations (workspace_id TEXT NOT NULL, user_id TEXT NOT NULL, client_id TEXT NOT NULL, mutation_id TEXT NOT NULL, fingerprint TEXT NOT NULL, result TEXT NOT NULL, PRIMARY KEY(workspace_id,user_id,client_id,mutation_id))",
+];
+
+const schema = baselineStatements.map((statement) => `${statement};`).join("\n");
 
 export async function openDatabase(url = process.env.DATABASE_URL ?? "file:./data/raspberry.sqlite"): Promise<Database> {
   if (/^postgres(ql)?:\/\//.test(url)) {

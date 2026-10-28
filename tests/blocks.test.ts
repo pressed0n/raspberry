@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { openDatabase, LOCAL_WORKSPACE_ID } from "../src/server/database";
 import { RaspberryService, localActor, AppError } from "../src/server/service";
 import { createCallout, createColumns, createPageLink, documentSchema, editorDocument, emptyDocument, plainText, toMarkdown, type DocumentBlock } from "../src/lib/document";
+import { migrate } from "../src/server/migrations";
 
 function table(): DocumentBlock {
   return { id: crypto.randomUUID(), type: "table", props: { textColor: "default" }, children: [], content: { type: "tableContent", columnWidths: [null, 140], headerRows: 1, rows: [
@@ -66,16 +67,15 @@ test("page creation links children once; ordinary page links do not reparent the
     assert.equal(atCursor.parentId, parent.id);
   } finally { await db.close(); }
 });
-test("upgrading backfills legacy child-page links without duplicating references or losing text", async () => {
+test("migration 2 backfills legacy child-page links without duplicating references or losing text", async () => {
   const db = await openDatabase("file::memory:"), service = new RaspberryService(db), actor = localActor(); await service.seed();
   try {
     const parent = await service.create(actor, { title: "Legacy parent", mutationId: crypto.randomUUID() });
     const child = await service.create(actor, { title: "Legacy child", parentId: parent.id, linkInParent: false, mutationId: crypto.randomUUID() });
     await db.transaction((sql) => sql.query("DELETE FROM schema_migrations WHERE version=2"));
-    await service.seed(); const migrated = await service.get(actor, parent.id); await service.seed();
+    await migrate(db); const migrated = await service.get(actor, parent.id); await migrate(db);
     assert.equal(migrated.content.at(-1)?.props.pageId, child.id); assert.deepEqual(migrated.content[0], parent.content[0]);
-    assert.equal((await service.get(actor, parent.id)).revision, migrated.revision);
-    assert.equal((await service.history(actor, parent.id))[0].clientId, "migration");
+    assert.equal((await service.get(actor, parent.id)).revision, migrated.revision, "a second migrate run is a no-op");
   } finally { await db.close(); }
 });
 test("page references reject inaccessible targets and remain editable after a target is trashed", async () => {

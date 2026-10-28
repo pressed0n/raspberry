@@ -58,16 +58,6 @@ async function linkChildPage(sql: Sql, actor: Actor, parentId: string, child: Pa
   if (pageReferences(parent.content).includes(child.id)) return;
   await updatePage(sql, actor, parentId, { expectedRevision: parent.revision, mutationId: randomUUID(), content: documentSchema.parse([...parent.content, createPageLink(child, "child")]) }, fingerprint("child-link", child.id));
 }
-async function migrateChildPageLinks(sql: Sql) {
-  if ((await sql.query("SELECT version FROM schema_migrations WHERE version=2")).length) return;
-  const children = await sql.query("SELECT c.* FROM pages c JOIN pages p ON p.id=c.parent_id AND p.workspace_id=c.workspace_id WHERE c.deleted_at IS NULL AND p.deleted_at IS NULL ORDER BY c.created_at,c.id");
-  for (const row of children) {
-    const [owner] = await sql.query("SELECT user_id FROM memberships WHERE workspace_id=$1 AND role='owner' ORDER BY user_id LIMIT 1", [row.workspace_id]);
-    if (!owner) continue;
-    await linkChildPage(sql, { userId: String(owner.user_id), workspaceId: String(row.workspace_id), clientId: "migration" }, String(row.parent_id), page(row));
-  }
-  await sql.query("INSERT INTO schema_migrations(version) VALUES(2) ON CONFLICT DO NOTHING");
-}
 
 export class RaspberryService {
   constructor(private readonly database: Database) {}
@@ -77,7 +67,7 @@ export class RaspberryService {
       await sql.query("INSERT INTO workspaces(id,name) VALUES($1,$2) ON CONFLICT DO NOTHING", [LOCAL_WORKSPACE_ID, "Personal workspace"]);
       await sql.query("INSERT INTO memberships(user_id,workspace_id,role) VALUES($1,$2,$3) ON CONFLICT DO NOTHING", [LOCAL_USER_ID, LOCAL_WORKSPACE_ID, "owner"]);
       const [{ count }] = await sql.query("SELECT COUNT(*) AS count FROM pages WHERE workspace_id=$1", [LOCAL_WORKSPACE_ID]);
-      if (Number(count)) { await migrateChildPageLinks(sql); return; }
+      if (Number(count)) return;
       const block = (type: Page["content"][number]["type"], text: string, props = {}) => ({ id: randomUUID(), type, props, content: [{ type: "text" as const, text, styles: {} }], children: [] });
       for (const entry of [
         { id: "00000000-0000-4000-8000-000000000010", title: "A little space for big ideas", icon: "sparkles", content: [
@@ -99,7 +89,6 @@ export class RaspberryService {
         const [row] = await sql.query("INSERT INTO pages(id,workspace_id,title,icon,content,plain_text,created_at,updated_at,favorite) VALUES($1,$2,$3,$4,$5,$6,$7,$7,$8) ON CONFLICT DO NOTHING RETURNING *", [entry.id, LOCAL_WORKSPACE_ID, entry.title, entry.icon, JSON.stringify(entry.content), plainText(entry.content), now, entry.icon === "sparkles" ? 1 : 0]);
         if (row) await snapshot(sql, row, localActor("setup"));
       }
-      await migrateChildPageLinks(sql);
     });
   }
   /** Liveness probe for the health endpoint. Reads nothing, reveals nothing. */
