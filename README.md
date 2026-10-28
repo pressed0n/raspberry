@@ -159,4 +159,10 @@ See [the research plan](RASPBERRY_PLAN.md) and [security notes](SECURITY.md).
 
 ## License
 
-Raspberry is released under the [MIT License](LICENSE). Third-party code retains its own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).
+Raspberry is licensed under the [GNU Affero General Public License v3.0](LICENSE), SPDX identifier `AGPL-3.0-only`.
+
+The Affero clause is the reason this license was chosen over the plain GPL: Raspberry is built to be reached over a network, so section 13 applies. Anyone who runs a *modified* Raspberry and lets other people use it over a network must offer those users the Corresponding Source of the version that is actually running. Publishing a link to upstream Raspberry is not a substitute for publishing your own changes.
+
+That has one concrete consequence for hosting: before a Raspberry instance is reachable by anyone other than its owner, the interface needs to expose a source link pointing at the exact code being served, and the deployed commit must be recoverable. Treat that as a deployment requirement alongside HTTPS, not as documentation polish.
+
+Third-party code retains its own licenses; see [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md).

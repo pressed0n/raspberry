@@ -10,3 +10,5 @@ test-results/
 playwright-report/
 artifacts/
 *.log
+# Local push credentials (SSH key / token material) — never commit
+.secrets/
