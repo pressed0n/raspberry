@@ -15,11 +15,17 @@ import { usePageDraft } from "./use-page-draft";
  * has no session, so the request fails harmlessly there and the drafts still go.
  */
 async function signOut() {
-  try { await request("/api/auth/logout", { method: "POST" }); } catch { /* Clearing the device is the point. */ }
+  let hosted = true;
+  try {
+    const result = await request<{ mode?: string }>("/api/auth/logout", { method: "POST" });
+    // In local mode there is no session to end and nobody to sign in as, so leaving the
+    // user on a sign-in page would be a dead end.
+    hosted = result?.mode === "session";
+  } catch { /* Clearing the device is the point. */ }
   try {
     for (const key of Object.keys(localStorage)) if (key.startsWith("raspberry")) localStorage.removeItem(key);
   } catch { /* Storage can be unavailable in private modes. */ }
-  window.location.assign("/login");
+  window.location.assign(hosted ? "/login" : "/");
 }
 const BlockEditor = dynamic(() => import("./block-editor"), { ssr: false, loading: () => <div className="editor-loading"><LoaderCircle className="spin" size={18} /> Opening your page…</div> });
 const icons = { file: FileText, sparkles: Sparkles, notebook: NotebookPen, lightbulb: Lightbulb, compass: Compass, leaf: Leaf };

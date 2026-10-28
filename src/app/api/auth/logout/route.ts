@@ -3,6 +3,7 @@ import { clearCookie, readCookie, SESSION_COOKIE } from "@/server/auth/cookies";
 import { revokeSession, verifySession } from "@/server/auth/session-store";
 import { recordEvent } from "@/server/auth/events";
 import { AUTH_LOGOUT_LIMIT } from "@/server/auth/limits";
+import { accessMode } from "@/server/access";
 import { publicApi } from "@/server/http";
 import { callerIp } from "@/server/rate-limit";
 import { getDatabase } from "@/server/runtime";
@@ -34,7 +35,7 @@ export function POST(request: Request) {
       }
       // Always the same answer: whether a session existed is not information this
       // endpoint gives away, and a stale cookie still needs clearing.
-      const response = NextResponse.json({ ok: true }, { headers: { "Cache-Control": "no-store" } });
+      const response = NextResponse.json({ ok: true, mode: accessMode() }, { headers: { "Cache-Control": "no-store" } });
       response.headers.append("Set-Cookie", clearCookie(SESSION_COOKIE));
       return response;
     },
