@@ -1,0 +1,45 @@
+# systemd unit for the future Linux VPS (the migration described in
+# RASPBERRY_PLAN.md). Adjust User, WorkingDirectory and the ReadWritePaths to
+# match where you check Raspberry out.
+#
+#   sudo cp deploy/raspberry.service /etc/systemd/system/
+#   sudo systemctl daemon-reload && sudo systemctl enable --now raspberry
+#
+# It runs `scripts/serve.mjs`, which refuses to boot while
+# RASPBERRY_AUTH_MODE=session. That is deliberate: this unit will not expose an
+# unauthenticated instance, it only keeps the local instance alive across
+# reboots. Point a TLS reverse proxy at RASPBERRY_HOST once sessions exist.
+[Unit]
+Description=Raspberry notes
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=raspberry
+WorkingDirectory=/srv/raspberry
+Environment=NODE_ENV=production
+Environment=RASPBERRY_HOST=127.0.0.1
+Environment=PORT=3000
+# Create this file from .env.example. It must set RASPBERRY_LOCAL_DEV=1 and
+# DATABASE_URL; the data directory must stay writable for WAL and backups.
+EnvironmentFile=/srv/raspberry/.env.local
+ExecStart=/usr/bin/node scripts/serve.mjs
+Restart=always
+RestartSec=5
+UMask=0077
+
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=true
+SystemCallArchitectures=native
+ReadWritePaths=/srv/raspberry/data /srv/raspberry/.next
+
+[Install]
+WantedBy=multi-user.target

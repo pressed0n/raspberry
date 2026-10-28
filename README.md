@@ -30,6 +30,21 @@ pnpm preview
 
 `pnpm start` does not automatically enable local mode. Requests fail closed without explicit local-mode configuration. Neither launch path is an authenticated internet deployment. Do not expose the prototype through a tunnel, reverse proxy, or router port forwarding.
 
+## Access modes
+
+Raspberry has two access modes, selected by `RASPBERRY_AUTH_MODE`.
+
+| Mode | Status | What it enforces |
+| --- | --- | --- |
+| `local` (default) | Works | Loopback Host only; mutations need an allow-listed `Origin`. A tunnel or proxy fails by design. |
+| `session` | **Refused** | The hosted path: bare `https` public origin, Host allow-list, allow-listed `Origin`, no cross-site mutations, HTTPS-only when behind a trusted proxy. Every request is then rejected with `auth_not_configured`. |
+
+Session mode is a reviewed seam, not a feature: the transport checks are implemented and covered by tests, and the only remaining work is a session lookup plus one return value in `src/server/access.ts`. `pnpm start` refuses to boot while `RASPBERRY_AUTH_MODE=session`, so Raspberry cannot be half-exposed by accident. `pnpm start` binds `RASPBERRY_HOST` (default `127.0.0.1`), which is what a future reverse proxy will sit in front of.
+
+Raspberry also rate limits reads and writes per process, returns an `X-Request-Id` with every API response, and exposes `GET /api/health` for service supervision. That path is exempt from the access guard and reports liveness only.
+
+To survive a reboot on the machine that hosts it, `scripts/install-service.ps1` registers a Windows Scheduled Task at sign-in with automatic restart, and `deploy/raspberry.service` is the equivalent systemd unit for the future Linux VPS. Both are opt-in and unverified until you run them.
+
 ## What works
 
 - Pages and nested subpages, editable titles, page icons, and favorites.

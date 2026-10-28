@@ -102,6 +102,13 @@ export class RaspberryService {
       await migrateChildPageLinks(sql);
     });
   }
+  /** Liveness probe for the health endpoint. Reads nothing, reveals nothing. */
+  ping() {
+    return this.database.transaction(async (sql) => {
+      const [row] = await sql.query("SELECT 1 AS ok");
+      return Number(row?.ok ?? 0) === 1;
+    });
+  }
   list(actor: Actor, options: { trash?: boolean; query?: string; limit?: number; offset?: number } = {}) {
     return this.database.transaction(async (sql) => {
       await access(sql, actor);

@@ -12,7 +12,7 @@
   "scripts": {
     "dev": "node scripts/local.mjs dev",
     "build": "next build",
-    "start": "next start --hostname 127.0.0.1",
+    "start": "node scripts/serve.mjs",
     "preview": "node scripts/local.mjs start",
     "typecheck": "tsc --noEmit",
     "test": "tsx --test tests/*.test.ts",

@@ -1,21 +1,32 @@
+import { randomUUID } from "node:crypto";
 import { NextResponse } from "next/server";
 import { z } from "zod";
-import { AppError, localActor } from "./service";
-import { localAccessError } from "./local-access";
+import { accessMode, requestAccessError } from "./access";
+import { rateLimitError } from "./rate-limit";
+import { AppError, type Actor } from "./service";
+import { resolveActor } from "./session";
 
-export const browserActor = localActor("browser");
-export async function api(request: Request, work: () => Promise<unknown>) {
+export type ApiContext = { actor: Actor; requestId: string };
+
+export async function api(request: Request, work: (context: ApiContext) => Promise<unknown>) {
+  const requestId = randomUUID();
   try {
-    const denied = localAccessError(request.headers, request.method);
-    if (denied) throw new AppError(403, "local_only", denied);
-    const result = await work();
-    return NextResponse.json(result, { headers: { "Cache-Control": "no-store" } });
+    const denied = requestAccessError(request.headers, request.method);
+    if (denied) throw new AppError(403, accessMode() === "local" ? "local_only" : "access_denied", denied);
+    const limited = rateLimitError(request.headers, request.method);
+    if (limited) throw new AppError(429, "rate_limited", limited);
+    const actor = await resolveActor(request);
+    const result = await work({ actor, requestId });
+    return json(result, 200, requestId);
   } catch (error) {
-    if (error instanceof AppError) return NextResponse.json({ error: { code: error.code, message: error.message } }, { status: error.status });
-    if (error instanceof z.ZodError) return NextResponse.json({ error: { code: "invalid_input", message: error.issues[0]?.message ?? "Invalid input." } }, { status: 400 });
-    console.error("Raspberry request failed", error instanceof Error ? error.name : "UnknownError");
-    return NextResponse.json({ error: { code: "internal_error", message: "Something went wrong. Your draft has been kept." } }, { status: 500 });
+    if (error instanceof AppError) return json({ error: { code: error.code, message: error.message } }, error.status, requestId);
+    if (error instanceof z.ZodError) return json({ error: { code: "invalid_input", message: error.issues[0]?.message ?? "Invalid input." } }, 400, requestId);
+    console.error("Raspberry request failed", requestId, error instanceof Error ? error.name : "UnknownError");
+    return json({ error: { code: "internal_error", message: "Something went wrong. Your draft has been kept." } }, 500, requestId);
   }
+}
+function json(body: unknown, status: number, requestId: string) {
+  return NextResponse.json(body, { status, headers: { "Cache-Control": "no-store", "X-Request-Id": requestId } });
 }
 export async function readBody(request: Request): Promise<unknown> {
   if (!request.headers.get("content-type")?.startsWith("application/json")) throw new AppError(415, "content_type", "Send JSON content.");
