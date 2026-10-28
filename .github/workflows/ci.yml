@@ -1,0 +1,130 @@
+# Verify-only CI. No secrets, no deployment, no write permissions.
+#
+# Raspberry's local preview is developed on a machine where the agent harness
+# cannot execute `pnpm`, so this workflow exists to turn "reads as if it
+# compiles" into a check anyone can inspect on a public repo. Actions minutes
+# are unlimited on public repositories, and nothing here is privileged: a fork
+# pull request gets the same read-only token as a maintainer push.
+
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+# Least privilege for the whole workflow. Individual jobs cannot exceed this.
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  NODE_VERSION: "24"
+  PNPM_VERSION: "11.25.0"
+  NEXT_TELEMETRY_DISABLED: "1"
+  CI: "true"
+
+jobs:
+  # Fails in seconds, before any dependencies are installed. This repository
+  # keeps a write-capable deploy key in .secrets/ and a live SQLite database in
+  # data/, so the cheapest possible guard against committing either is worth
+  # more than faster feedback on a type error.
+  hygiene:
+    name: No secrets or data tracked
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: Refuse tracked credentials, databases, and env files
+        shell: bash
+        run: |
+          set -euo pipefail
+          # .env.example is the documented template and is allowed; every other
+          # .env variant, the deploy key directory, the data directory, and any
+          # key/database file extension are not.
+          offenders="$(git ls-files | grep -E \
+            '(^|/)\.env(\.[^/]*)?$|^(data|\.secrets)/|\.(sqlite|sqlite3|db|db-wal|db-shm|pem|key|p12|pfx|jks)$|(^|/)id_(rsa|dsa|ecdsa|ed25519)$' \
+            | grep -v -x '\.env.example' || true)"
+          if [ -n "$offenders" ]; then
+            echo "::error::Files that must never be published are tracked:"
+            echo "$offenders"
+            exit 1
+          fi
+          echo "Tracked file list is clean ($(git ls-files | wc -l) files)."
+
+  verify:
+    name: Typecheck and test
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # pnpm must exist before setup-node so its store cache can be resolved.
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      # Tests run in-process against file::memory: and an OS temp directory, so
+      # this job never needs a DATABASE_URL or a host secret.
+      - name: Test
+        run: pnpm test
+
+  build:
+    name: Build (${{ matrix.shape }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        # next.config.ts derives CSP, HSTS, and COOP from the same variables the
+        # access guard reads, which means the deployment shape is a build input.
+        # Both are compiled here so a hosted-only branch cannot rot silently
+        # while the project is still being developed in local mode.
+        # An empty origin is the documented "local" shape: next.config and
+        # accessMode() both treat unset and empty alike.
+        include:
+          - shape: local
+            public_origin: ""
+            auth_mode: "local"
+          - shape: hosted
+            public_origin: "https://raspberry.example.com"
+            auth_mode: "session"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build
+        env:
+          RASPBERRY_PUBLIC_ORIGIN: ${{ matrix.public_origin }}
+          RASPBERRY_AUTH_MODE: ${{ matrix.auth_mode }}
+        run: pnpm build

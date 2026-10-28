@@ -1,5 +1,7 @@
 # Raspberry
 
+[![CI](https://github.com/pressed0n/raspberry/actions/workflows/ci.yml/badge.svg)](https://github.com/pressed0n/raspberry/actions/workflows/ci.yml)
+
 A quiet home for your notes and ideas. An independent workspace built for people and AI.
 
 **Status: local foundation prototype, v0.1.** Page editing, persistence, and local MCP work. Google login followed by an email code, remote MCP authorization, internet hosting, databases/views, and real-time collaboration are upcoming work. This prototype deliberately rejects non-loopback hosts and does not provide production authentication.
