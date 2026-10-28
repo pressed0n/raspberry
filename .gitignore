@@ -12,3 +12,5 @@ artifacts/
 *.log
 # Local push credentials (SSH key / token material) — never commit
 .secrets/
+# Portable Node toolchain used to run the suite on the dev laptop — never commit
+.tools/

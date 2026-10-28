@@ -80,7 +80,7 @@ test("restoring a batch still returns every page trashed with it", async () => {
   try {
     const parent = await service.create(owner, { title: "Parent", mutationId: randomUUID() });
     const child = await service.create(owner, { title: "Child", parentId: parent.id, mutationId: randomUUID() });
-    await service.trash(owner, parent.id, 1);
+    await service.trash(owner, parent.id, (await service.get(owner, parent.id)).revision);
     // The batch is restored from its root; a child cannot be restored before its parent.
     const restored = await service.restore(owner, parent.id);
     assert.equal(restored.id, parent.id);

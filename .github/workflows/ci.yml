@@ -82,9 +82,23 @@ jobs:
         run: pnpm typecheck
 
       # Tests run in-process against file::memory: and an OS temp directory, so
-      # this job never needs a DATABASE_URL or a host secret.
+      # this job never needs a DATABASE_URL or a host secret. Output is kept in a
+      # file because job logs require authentication to read, while annotations on
+      # a public repository do not: this is what makes a red run diagnosable.
       - name: Test
-        run: pnpm test
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm test 2>&1 | tee test-output.log
+
+      - name: Report failing assertions
+        if: failure()
+        shell: bash
+        run: |
+          if [ ! -f test-output.log ]; then exit 0; fi
+          grep -E '^(✖|not ok)|AssertionError|Error:|actual:|expected:|at tests' test-output.log | head -10 | while IFS= read -r line; do
+            echo "::error::${line}"
+          done
 
   build:
     name: Build (${{ matrix.shape }})
