@@ -30,10 +30,13 @@ Start-Raspberry.cmd          # the only supported way on the owner's machine
 | Run the app | `Start-Raspberry.cmd` |
 | Typecheck | `node node_modules\typescript\bin\tsc --noEmit` |
 | Unit + integration suite | `node node_modules\tsx\dist\cli.mjs --test tests\*.test.ts` |
-| Both | `node scripts\check-docs.mjs && …` — see `docs/TESTING.md` |
-| Docs/tests/scripts drift gate | `node scripts\check-docs.mjs` (`--fix` repairs the snapshot, `--full` runs the suite too) |
-| Back up the live database | `node scripts\backup.ts` equivalent — `scripts\backup.ts` |
-| MCP stdio server | `node scripts\` … entry is `src/mcp/stdio.ts` |
+| Both, plus the drift gate | `node scripts\check-docs.mjs --full` — this is the one that prints the pass count |
+| Docs/tests/scripts drift gate only | `node scripts\check-docs.mjs` (`--fix` repairs the snapshot) |
+| Back up the live database | `node node_modules\tsx\dist\cli.mjs scripts\backup.ts` (also `pnpm backup`) |
+| MCP stdio server | `node node_modules\tsx\dist\cli.mjs src/mcp/stdio.ts` |
+
+`package.json` also has `pnpm dev`, `pnpm test`, `pnpm check` — the same commands, but pnpm is
+not on PATH here, so the invocations above are the ones that work.
 
 **Restart the launcher after adding a server method.** See §3.
 
@@ -52,7 +55,7 @@ Start-Raspberry.cmd          # the only supported way on the owner's machine
 | `artifacts/` | Gitignored test evidence: screenshots, DB snapshots. Was 14.6 GB of leaked Chrome profiles — see §9. | Rarely. |
 | `deploy/` | `raspberry.service` unit for running the built app as a Windows service via `scripts/install-service.ps1`. | Only for "run it as a service". |
 | `prototype/` | Standalone HTML explorations. Not imported by the app, not built, not tested. | Only when the owner points at it. |
-| `src/app/*.css` | Seven stylesheets, each with one owner. §5. | Any visual change. |
+| `src/app/*.css` | Eight stylesheets, each with one owner. §5. | Any visual change. |
 | `.tools/`, `.secrets/`, `.unjess/`, `.next/` | Gitignored: vendored Node, push credentials, agent harness state, build output. | Never commit. |
 
 ---
@@ -79,9 +82,64 @@ Databases have their own layer on top of the same spine:
 `src/lib/database/property-types/<type>.ts` (one file per property type; `shared.ts` is the
 common contract) → UI in `src/components/database/`.
 
-API surface today: 24 route files under `src/app/api/` — `pages`, `trash`, `health`,
-`files`, `databases/[id]/{properties,rows,views}`, `auth/**`. There is no `POST /views`,
-no `DELETE /views/:id`, and no filter endpoint; filters are client-side.
+### API surface — every route, and where a body's shape is defined
+
+| Route (under `/api`) | Methods |
+|---|---|
+| `/pages` | GET, POST |
+| `/pages/[id]` | GET, PATCH, DELETE |
+| `/pages/[id]/history` | GET |
+| `/pages/[id]/move` | POST |
+| `/pages/[id]/purge` | DELETE |
+| `/pages/[id]/restore` | POST |
+| `/trash` | DELETE |
+| `/databases` | POST |
+| `/databases/[id]` | GET, PATCH |
+| `/databases/[id]/properties` | POST |
+| `/databases/[id]/properties/[propertyId]` | PATCH, DELETE |
+| `/databases/[id]/rows` | POST |
+| `/databases/[id]/rows/[rowId]` | PATCH, DELETE |
+| `/databases/[id]/rows/[rowId]/duplicate` | POST |
+| `/databases/[id]/rows/order` | POST |
+| `/databases/[id]/views/[viewId]` | PATCH |
+| `/files` | POST |
+| `/files/[id]` | GET |
+| `/health` | GET |
+| `/auth/google/start`, `/auth/google/callback` | GET |
+| `/auth/verify-code`, `/auth/resend`, `/auth/logout` | POST |
+
+**Bodies are not validated at the route layer.** Every handler is three lines: `readBody`,
+hand the object to one service method, wrap it in `api()`. So the shape of a body is defined
+by the method that receives it — `addProperty`, `patchProperty`, `addRow`, `patchRow`,
+`reorderRows`, `patchView`, `duplicateRow`, `patchDatabase` in `src/server/databases.ts` —
+not by the route. Read the method; the route will tell you nothing.
+
+Two absences are deliberate, not oversights: there is no `POST /views` (a database ships with
+its views) and no `DELETE /views/[id]`, and there is no filter endpoint — filters are
+client-side.
+
+### Where the schema lives — two files, and a trap in each
+
+| Tables | Defined in |
+|---|---|
+| `schema_migrations`, `users`, `workspaces`, `memberships`, `pages`, `revisions`, `mutations` — the baseline | `src/server/database.ts` |
+| `accounts`, `sessions`, `login_challenges`, `auth_events` | `migrations.ts`, migration 3 |
+| `files` | migration 5 |
+| `databases`, `database_properties`, `database_views`, `database_cells` | migrations 6–7 |
+
+The baseline is in `database.ts`, not in `migrations.ts`, so "grep migrations for the table"
+misses every table the page editor actually uses. A new table is a new numbered migration;
+the baseline is never edited.
+
+**There is no `blocks` table.** A page's blocks are JSON in `pages.content` (with a flattened
+copy in `plain_text` for search, and `revision` incremented on write). Two consequences worth
+knowing before you touch page writes:
+
+- **Nesting is stored twice** — `pages.parent_id` (what the sidebar draws) and a `pageLink`
+  block appended to the *parent's* content (what the parent's page shows). Writing one and not
+  the other is how a nested page "disappears". This has shipped as a bug once.
+- **Purging and restoring are recursive** over `parent_id`, not over content. See
+  `src/server/service.ts` and `tests/purge.test.ts`.
 
 ### The 500 that is not a bug
 
@@ -102,7 +160,7 @@ here first; if the control you need is one of these, import it.
 | Control | Import from | Use for | Trap |
 |---|---|---|---|
 | Grip + plus pair | `src/components/frame-anchor.tsx` renders `FrameAnchor`; it draws `GripGlyph` internally | The 6-dot grip and the plus, together, **always plus before grip** | **Never import `GripGlyph` directly.** `frame-anchor.test.ts` pins it to `frame-anchor.tsx` and `grip-glyphs.tsx` only. A database row grip is a `FrameAnchor`, not a `GripGlyph`. |
-| The bare glyphs | `src/components/grip-glyphs.tsx` | Definitions only (`GripGlyph`, plus glyph). Nothing imports these except `src/components/frame-anchor.tsx`. | A third importer fails `frame-anchor.test.ts` by design; place a `frame-anchor.tsx` `FrameAnchor` instead. |
+| The bare glyphs | `src/components/grip-glyphs.tsx` | Definitions only (`GripGlyph`, `AddGlyph`). | Two importers are permitted and pinned by `frame-anchor.test.ts`: `frame-anchor.tsx` (the pair) and `database/add-property-menu.tsx` (`+ Add property` — plus and label, no grip). A third fails the suite by design. |
 | Drag preview / drop indicator | `src/components/drag-layer.tsx` | Anything dragged: pages, blocks, rows | One layer for the whole app; do not position a second one. |
 | Modal shell, focus trap, Esc | `src/components/modal.tsx`; richer dialog `src/components/editor/dialog.tsx`, `src/components/settings/dialog.tsx` | Any dialog | Use the one whose layer you are in; do not fork a third. |
 | Menu positioned at a point or button | `src/components/database/menu.tsx` with placement maths in `src/lib/menu-place.ts` | `⋯` menus, context menus, submenus | Placement is a shared calculation — right-click and `⋯` use the same one. |
@@ -112,6 +170,31 @@ here first; if the control you need is one of these, import it.
 | Form controls (toggle, field, row) | `src/components/settings/controls.tsx` | Settings and any settings-shaped form | These are small and easy to redraw by accident. |
 | Page picker / move destination | `src/components/page-picker.tsx`, `src/components/move-picker.tsx` | Choosing a parent page | Both already handle cycles and self-move. |
 | Object selection & clipboard | `src/components/editor/object-selection.tsx`, `src/lib/page-copy.ts` | Selecting/copying non-text objects | Copy is serialised through `page-copy.ts`, not the system clipboard alone. |
+
+### `FrameAnchor` — the contract, because you cannot place a row grip without it
+
+```ts
+type FrameAnchorProps = {
+  onAdd: () => void;              // required — a pair without it is the one object you
+  addLabel: string;               //           cannot add below
+  addTest?: string;
+  onGrip?: () => void;            // press of the grip; omit when the grip is a drag handle
+  gripLabel: string;
+  gripTest?: string;
+  gripOpen?: boolean;             // drives aria-expanded and the is-open tick
+  gripClass?: string;             // `db-grip` for a drag handle, `is-inert` when it cannot act
+  gripPointer?: GripPointerHandlers;  // { onPointerDown, onPointerMove, onPointerUp, onPointerCancel }
+  inline?: boolean;               // host lays the pair out (row gutter) instead of floating
+  anchorRef?: Ref<HTMLDivElement>;
+  children?: ReactNode;
+};
+```
+
+Floating (default) is the editor's side menu: `.frame-anchor` positions itself on the block's
+left edge. `inline` is the database row: the host positions it, so the pair can hang in the
+page margin *outside* the table's own box — that is the 39×30 pair at 19.5+19.5, plus then
+grip. A drag source passes `gripPointer` and `gripClass="db-grip"` rather than `onGrip`;
+`scripts/verify-db-gutter.mjs` asserts all of it in a real browser.
 
 ---
 
@@ -151,10 +234,9 @@ another's width — check specificity and which sheet loads last before blaming 
 | `src/components/move-picker.tsx` | Move-to destination chooser |
 | `src/components/page-glyph.tsx` | Page icon glyph |
 | `src/components/sign-in.tsx` | Hosted-mode sign-in UI |
-| `src/components/frame-anchor.tsx` | Grip+plus wrapper (§4) |
-| `src/components/grip-glyphs.tsx` | Grip/plus glyph definitions (§4) |
-| `src/components/drag-layer.tsx` | Drag preview layer (§4) |
-| `src/components/modal.tsx` | Base modal |
+
+The shared controls — `frame-anchor.tsx`, `grip-glyphs.tsx`, `drag-layer.tsx`,
+`modal.tsx` — also live here but are documented in §4, where the traps are.
 
 `src/components/editor/`
 
@@ -231,7 +313,7 @@ drag maths), `sidebar-menu.ts`, `menu-place.ts` (menu positioning), `palette.ts`
 | Service + SQLite integration | `service`, `databases`, `database-columns`, `database-properties`, `database-writes`, `migrations`, `files`, `access` | `tests/database-writes.test.ts` |
 | Auth | `auth-login`, `session-store` | `tests/auth-login.test.ts` |
 | Pure helpers | `sidebar-drag`, `sidebar-menu`, `menu-place`, `palette`, `settings-nav`, `clipboard-image`, `client` | `tests/sidebar-drag.test.ts` |
-| Browser/UI primitives | `frame-anchor`, `media-blocks`, `schema` | `tests/frame-anchor.test.ts` |
+| Browser/UI primitives | `frame-anchor`, `media-blocks` | `tests/frame-anchor.test.ts` |
 | MCP | `mcp`, `stdio` | `tests/mcp.test.ts` |
 | **Guards on agents themselves** | `docs-freshness` (STATE/MAP/counts/artifacts), `frame-anchor` (reuse rule) | — |
 

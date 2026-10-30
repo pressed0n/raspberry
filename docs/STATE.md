@@ -4,9 +4,12 @@
 If any other document disagrees with it, this file is right and that document is history.
 `docs/ARCHIVE/` holds the old plans, preserved unedited.
 
-Two numbers in the snapshot below are checked by a test. If you change the suite, the
-test tells you to update this file — that is the mechanism that keeps it from rotting
-the way its predecessors did.
+The snapshot below is machine-checked: the test count, the migration range, the commit it
+describes, and whether the working tree is clean. "Committed through" names the commit this
+description was verified at, and it must be an **ancestor** of HEAD rather than equal to it —
+the commit that updates this line changes HEAD, so an equality check could never converge.
+If you change the suite, the check tells you to update this file; that is the mechanism that
+keeps it from rotting the way its predecessors did.
 
 ---
 
