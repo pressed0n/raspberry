@@ -289,6 +289,18 @@ if (existsSync(artifactsDir)) {
         `on exit; delete the leftovers with: rd /s /q artifacts\\.chrome-*`
     );
   }
+
+  /* `run-b40-probe.ps1` copies the project to `artifacts/qa-run` and deletes it in `finally`.
+     A crash skips `finally`, and the leftover is not harmless: it carries its own
+     `data/qa.sqlite` and its own `src/`, so the next probe can quietly verify stale code
+     against a stale database. That is a false green, which is worse than a red. */
+  if (entries.some((e) => e.isDirectory() && e.name === "qa-run")) {
+    fail(
+      `artifacts/qa-run is left over from a probe run that was killed before its finally block. ` +
+        `It carries a second database and a stale copy of src/, so it must not be probed against. ` +
+        `Delete it: rd /s /q artifacts\\qa-run — run-b40-probe.ps1 rebuilds it.`
+    );
+  }
 }
 
 // ---------------------------------------------------------------- git facts

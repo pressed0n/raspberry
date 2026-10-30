@@ -48,6 +48,27 @@ the tidy-up soft-deleted pages the owner had not created. Their words:
 If an agent run does create litter, say so explicitly and offer to remove it — do not
 quietly delete it.
 
+### The disposable instance (when a write must be proved)
+
+`scripts/run-b40-probe.ps1` is the worked example: it copies the project to
+`artifacts/qa-run`, starts a second dev server there on `:3100`, seeds it with
+`scripts/seed-qa.mjs`, runs `scripts/verify-database-b40.mjs` at both widths, and stops it.
+Three rules make that honest, and each was learned the hard way:
+
+- **`BASE` and `DATABASE_URL` must be set together.** `verify-database-b40.mjs` used to read
+  `data/raspberry.sqlite` unconditionally while `BASE` pointed at `:3100` — so it picked a
+  page id from the owner's database and navigated the disposable instance to a page that
+  does not exist there. The symptom was `waitFor timed out: the table`, which reads as *the
+  app is broken*. It now derives the file from `DATABASE_URL`, the same variable the server
+  honours, so the two cannot drift apart.
+- **The copy is deleted in `finally`, and again at the start of the next run.** A crash skips
+  `finally`, and the leftover carries its own `src/` and its own `data/qa.sqlite` — probing
+  against it verifies code and data that are not on disk, and reports a green. That is worse
+  than a failure. `check-docs.mjs` now fails if `artifacts/qa-run` survives.
+- **One dev server at a time.** Two `next dev` processes on one directory fight over `.next`
+  and fail in ways that look like app bugs (`Failed to fetch`, `waitFor timed out: the
+  shell`). Run the probe with `:3000` stopped, then restart it.
+
 ## The browser harness
 
 There is no committed Playwright suite (`B14` is parked). What exists is a set of CDP

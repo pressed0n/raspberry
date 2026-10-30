@@ -14,6 +14,11 @@ $qa = Join-Path $root "artifacts\qa-run"
 $node = Join-Path $root ".tools\node-v24.22.1-win-x64\node.exe"
 $env:Path = (Join-Path $root ".tools\node-v24.22.1-win-x64") + ";" + $env:Path
 
+# A run that was killed — a crash, Ctrl+C, a closed shell — leaves this copy behind, because
+# `finally` never ran. Starting on top of it mixed an old `data/qa.sqlite` and an old `src/`
+# into a "fresh" sandbox, which is how a probe ends up verifying code that is not on disk.
+if (Test-Path $qa) { Remove-Item -Recurse -Force $qa -ErrorAction SilentlyContinue }
+
 New-Item -ItemType Directory -Force -Path $qa | Out-Null
 Copy-Item package.json, tsconfig.json, next.config.ts, next-env.d.ts -Destination $qa -Force
 robocopy src "$qa\src" /E /NFL /NDL /NJH /NJS /NP | Out-Null
@@ -61,5 +66,8 @@ try {
   if ($LASTEXITCODE -ne 0) { $code = $LASTEXITCODE }
 } finally {
   try { Stop-Process -Id $server.Id -Force } catch { }
+  # The copy is a build artefact, not evidence. Leaving it behind is what put 232 files and a
+  # second, stale database in `artifacts/` for the next session to trip over.
+  Remove-Item -Recurse -Force $qa -ErrorAction SilentlyContinue
 }
 exit $code
