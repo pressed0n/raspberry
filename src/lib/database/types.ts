@@ -302,6 +302,11 @@ export const patchPropertySchema = z.object({
   config: jsonSchema.optional(),
   type: propertyTypeSchema.optional(),
   icon: z.string().max(80).optional(),
+  /* The caller's "yes, I know the change clears values" — the answer to the 409 that
+     names how many. Without it, a column holding anything the new type cannot read
+     could never change type through the API at all, which is how the old guard behaved
+     and why the menu had no Change type item. */
+  clearUnconvertible: z.boolean().optional(),
   mutationId: z.string().min(8).max(200),
 });
 

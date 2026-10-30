@@ -9,7 +9,7 @@ import {
   type RowDef,
   type ViewConfig,
 } from "../src/lib/database/types";
-import { propertyById, selectRows, titlePropertyOf, visibleProperties } from "../src/lib/database/rows";
+import { propertyById, nextSorts, selectRows, titlePropertyOf, visibleProperties } from "../src/lib/database/rows";
 
 /**
  * The primary property's name and icon.
@@ -100,3 +100,80 @@ test("a sort pointing at a property that no longer exists is ignored, not thrown
   const set = selectRows(database as never, view({ sorts: [{ propertyId: "deleted-property", direction: "descending" }] }));
   assert.equal(set.rows.length, 2);
 });
+
+/* ---------------------------------------------------------------------------
+   Empty cells and sort direction
+   ---------------------------------------------------------------------------
+   Every `compare` in the registry ends with `compareNullable` and says the same thing:
+   empties go last. Reversing a comparator to sort descending reverses that promise too,
+   so `Z → A` used to float every blank row to the top of the table — the one place a
+   person is least likely to look and most likely to drag the table into.
+
+   The rows below are deliberately *unnamed* so nothing about them is alphabetical, and
+   the property is a real number column so the emptiness is a real `null` rather than a
+   missing title. */
+
+const scoreProperty: PropertyDef = { id: "score", name: "Score", position: 0, type: "number", config: {} };
+const scored = (id: string, title: string, score: number | null): RowDef => ({
+  ...row(id, title),
+  cells: score === null ? {} : { [scoreProperty.id]: score },
+});
+const byScore = (propertyId: string, direction: "ascending" | "descending") =>
+  view({ sorts: [{ propertyId, direction }] });
+
+test("a descending sort keeps empty cells last, because that is what the comparator promised", () => {
+  const database = { properties: [scoreProperty], rows: [scored("a", "one", null), scored("b", "two", 5), scored("c", "three", 9)] };
+  assert.deepEqual(selectRows(database as never, byScore("score", "ascending")).rows.map((item) => item.title), ["two", "three", "one"]);
+  assert.deepEqual(selectRows(database as never, byScore("score", "descending")).rows.map((item) => item.title), ["three", "two", "one"]);
+});
+
+test("a descending sort on the title column keeps an untitled row last too", () => {
+  /* The title column is text, so its emptiness is the empty string rather than a null —
+     the reason the sort asks `isEmpty` instead of testing for null. */
+  const database = { properties: [], rows: [row("a", ""), row("b", "Beta"), row("c", "Alpha")] };
+  assert.deepEqual(selectRows(database as never, byScore(primaryPropertyId, "descending")).rows.map((item) => item.title), ["Beta", "Alpha", ""]);
+});
+
+test("a second sort key only decides rows the first key ties on", () => {
+  const group: PropertyDef = { id: "group", name: "Group", position: 1, type: "text", config: {} };
+  const database = {
+    properties: [scoreProperty, group],
+    rows: [
+      { ...row("a", "one"), cells: { score: 1, group: "b" } },
+      { ...row("b", "two"), cells: { score: 1, group: "a" } },
+      { ...row("c", "three"), cells: { score: 2, group: "c" } },
+    ],
+  };
+  const set = selectRows(database as never, view({ sorts: [{ propertyId: "score", direction: "descending" }, { propertyId: "group", direction: "ascending" }] }));
+  assert.deepEqual(set.rows.map((item) => item.title), ["three", "two", "one"]);
+});
+
+/* The menu's half of multi-sort. It used to write `sorts: [oneKey]`, so a second column
+   silently replaced the first and the table could never have two keys — which made the
+   pipeline's list look like dead capability. */
+
+test("sorting a second column adds a key instead of replacing the first", () => {
+  const after = nextSorts([{ propertyId: "score", direction: "descending" }], "group", "ascending");
+  assert.deepEqual(after, [
+    { propertyId: "score", direction: "descending" },
+    { propertyId: "group", direction: "ascending" },
+  ]);
+});
+
+test("re-sorting a column replaces its key where it was, keeping its precedence", () => {
+  const first = nextSorts([], "score", "ascending");
+  const second = nextSorts(first, "group", "ascending");
+  const flipped = nextSorts(second, "score", "descending");
+  assert.deepEqual(flipped, [
+    { propertyId: "score", direction: "descending" },
+    { propertyId: "group", direction: "ascending" },
+  ]);
+});
+
+test("clearing one column's sort leaves the others alone", () => {
+  const both = nextSorts(nextSorts([], "score", "descending"), "group", "ascending");
+  assert.deepEqual(nextSorts(both, "score", null), [{ propertyId: "group", direction: "ascending" }]);
+  assert.deepEqual(nextSorts(both, "absent", null), both);
+});
+
+

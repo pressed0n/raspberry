@@ -1,7 +1,12 @@
 export class RequestError extends Error {
-  constructor(public code: string, message: string, public status: number) { super(message); this.name = "RequestError"; }
+  /* `details` is whatever the server attached to the refusal. The one caller today is a
+     type change refused because N cells cannot be read as the new type: the number is
+     the difference between a menu item that can offer "change anyway (clears 3)" and a
+     banner that says "3 cells" and leaves the person to find a button that does not
+     exist. Everything else may ignore it. */
+  constructor(public code: string, message: string, public status: number, public details?: unknown) { super(message); this.name = "RequestError"; }
 }
-type Envelope = { error?: { code?: string; message?: string } };
+type Envelope = { error?: { code?: string; message?: string; details?: unknown } };
 const unreachable = "Unable to reach Raspberry. Your draft is kept on this device.";
 function parse(text: string): Envelope | null {
   if (!text) return null;
@@ -13,7 +18,7 @@ export async function request<T>(path: string, options: RequestInit = {}): Promi
   // threw a SyntaxError that bypassed both the message and the 409 conflict path.
   const result = parse(await response.text());
   if (!response.ok) {
-    const error = new RequestError(result?.error?.code ?? "request_failed", result?.error?.message ?? unreachable, response.status);
+    const error = new RequestError(result?.error?.code ?? "request_failed", result?.error?.message ?? unreachable, response.status, result?.error?.details);
     // An expired session is not a failed save. Send the browser to sign in again,
     // keeping where it was, and let the draft in localStorage survive the round trip.
     if (response.status === 401 && typeof window !== "undefined" && !window.location.pathname.startsWith("/login")) {

@@ -550,44 +550,27 @@
 .db-row:hover .db-entry-icon.is-empty,
 .db-entry-icon.is-empty:focus-visible { opacity: 1; }
 
-/* A compact button. It used to be `width: 100%` with a top border, which made a 90px
-   label look like a section header spanning a 900px table. It sits where the next row
-   would be and hugs its own contents, because that is where people look for "one more". */
-.db-new-row {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  width: auto;
-  /* A flex *item* in `.db-block`'s column, so it would stretch to the table's width and
-     turn a 90px label into a 660px target. It is a sibling of the scroll wrapper now, not
-     a child of it, which is why this is needed here and was not before. */
-  align-self: flex-start;
-  margin: 3px 0 1px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-2);
-  font: 400 var(--fs-ui) / 1 var(--font-ui);
-  /* B40h — this block has one left rhythm, and this button was the exception to it.
-     The old rule was `padding: 6px 9px` with `margin-inline-start: -9px`, and its comment
-     claimed the shape "extends left of the grid by nothing". It did the opposite: the
-     negative margin cancelled the padding, so the *shape* started 9px left of the grid
-     while the *contents* started on it. On hover you saw a highlight hanging out over the
-     page margin — a chip floating beside the table rather than the place the next row goes.
+/* B41 — the trailing row, which replaced a button that sat below the table.
+   -------------------------------------------------------------------------
+   The button was a *sibling* of the table, so "add a page" had no column, no row and
+   nothing to type into; and every rule above about the block's left rhythm had to be
+   re-argued for it. A last `<tr>` inherits the column widths, the row hover, the cell
+   borders and the 32px height for free, and it puts the affordance exactly where the
+   next row will appear.
 
-     Making the contents start on the rule was wrong anyway, and the glyph proves it: a
-     lucide plus at 14px has ~2.3px of empty box on each side, so "on the rule" put the
-     visible cross 2.3px past it, and its label at 20px — while every column title above and
-     every entry name below sits at 29px. The button's own hover shape belongs on the grid
-     edge, exactly like `.db-tab` above and `.db-th-label` in the header; its glyph belongs
-     on the 10px icon axis; its words belong on the 29px text column. */
-  padding: 6px 10px;
-  gap: 5px;
-  text-align: left;
-  cursor: pointer;
-}
+   The row mirrors a real one: the same zero-width gutter cell first, the same
+   `.db-name-cell` with the same empty 20px icon slot, the same `+` cell, the same filler.
+   Every one of those was a measured 19–29px misalignment when it was missing, which is
+   why `scripts/verify-database-b40.mjs` compares the placeholder's left edge to a real
+   name's rather than trusting the markup.
 
-.db-new-row:hover { background: var(--hover); color: var(--text); }
+   Only the *colour* differs: the row reads as a placeholder until it is typed into or
+   hovered, at which point it is a row like any other. */
+.db-row-new > .db-cell { cursor: pointer; }
+.db-row-new > .db-cell.is-title { cursor: text; }
+.db-row-new .db-new-title { color: var(--text-2); }
+.db-row-new:hover .db-new-title,
+.db-row-new .db-new-title:focus { color: var(--text); }
 
 /* The one line of guidance a brand-new database gets. It sits inside the table's own
    border, so it reads as a footer to the table rather than as page text that happens

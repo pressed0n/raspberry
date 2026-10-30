@@ -65,11 +65,43 @@ export function matches(database: DatabaseSchema, row: RowDef, filters: ViewConf
   });
 }
 
+/* A sort on a column is a *toggle on that column*, not a replacement of everything else.
+   Sorting by Status and then by Name is two clicks, and `selectRows` has always applied a
+   list of keys — the UI was the only thing that could not produce a second one, because it
+   wrote `sorts: [oneKey]`. Order of the list is order of precedence, so the first column a
+   person sorts by stays primary and the next one only breaks its ties.
+
+   Pure and exported so it can be tested without a browser: the block's `sortProperty`
+   is one line that calls this, and the interesting part is the array, not the click. */
+export function nextSorts(
+  sorts: ViewConfig["sorts"],
+  propertyId: string,
+  direction: "ascending" | "descending" | null,
+): ViewConfig["sorts"] {
+  if (!direction) return sorts.filter((sort) => sort.propertyId !== propertyId);
+  const index = sorts.findIndex((sort) => sort.propertyId === propertyId);
+  /* Flipping a column from A → Z to Z → A must not demote it to the last tie-break: the
+     key keeps its slot, only its direction changes. A new column is appended, because the
+     column you sorted by first is the one you are still sorting by. */
+  if (index === -1) return [...sorts, { propertyId, direction }];
+  const next = [...sorts];
+  next[index] = { propertyId, direction };
+  return next;
+}
+
 /**
  * Sorts are applied as a chain of comparators, first one wins, with the row's own
  * position as the final tie-break. That last part is what keeps two rows with equal
  * keys from swapping places between renders — a table that reshuffles itself on
  * every load looks broken even when the order is technically valid.
+ *
+ * Emptiness is decided *before* the direction is applied, and that ordering is the
+ * whole reason this function exists in the shape it does. Every `compare` in the
+ * registry ends with `compareNullable` and documents the same rule — "empties last" —
+ * but negating a comparator to reverse it also reverses that rule, so `Z → A` used to
+ * float every empty row to the top. A person sorting descending is asking for the
+ * largest values first, not for their blank rows. Comparing emptiness separately and
+ * returning early keeps the promise direction-independent.
  */
 export function sortRows(database: DatabaseSchema, rows: RowDef[], sorts: ViewConfig["sorts"]): RowDef[] {
   if (!sorts.length) return rows;
@@ -84,7 +116,15 @@ export function sortRows(database: DatabaseSchema, rows: RowDef[], sorts: ViewCo
   });
   return [...rows].sort((left, right) => {
     for (const { property, spec, config, descending } of keys) {
-      const result = spec.compare(cellOf(left, property), cellOf(right, property), config);
+      const a = cellOf(left, property);
+      const b = cellOf(right, property);
+      /* `isEmpty` is the registry's own answer to "is this nothing?", so this needs no
+         knowledge of any type — and a type whose empty cells are not `null` (a text
+         cell holding "") is covered without a special case. */
+      const aEmpty = spec.isEmpty(a, config);
+      const bEmpty = spec.isEmpty(b, config);
+      if (aEmpty !== bEmpty) return aEmpty ? 1 : -1;
+      const result = spec.compare(a, b, config);
       if (result !== 0) return descending ? -result : result;
     }
     /* Final tie-break on the row's stored order, then id. Without it two rows with

@@ -15,6 +15,7 @@ import { useCallback, useContext, useEffect, useMemo, useState } from "react";
 import { request, RequestError } from "@/lib/api-client";
 import { resolveProperty } from "@/lib/database/properties";
 import { defaultViewConfig, primaryPropertyId, type CellValue, type DatabasePayload, type PropertyType, type ViewDef } from "@/lib/database/types";
+import { nextSorts } from "@/lib/database/rows";
 import { EditorBridgeContext } from "../editor/schema";
 import { useDatabase } from "./use-database";
 import type { SortDirection } from "./property-header";
@@ -46,7 +47,7 @@ const PRESS_OWNERS = [
 
 export function DatabaseBlock({ props }: { props: Record<string, unknown> }) {
   const { databaseId, viewId } = propsOf(props);
-  const { load, reload, apply, mutations, failure, dismissFailure } = useDatabase(databaseId);
+  const { load, reload, apply, mutations, failure, refusal, dismissFailure } = useDatabase(databaseId);
   const bridge = useContext(EditorBridgeContext);
   const [activeId, setActiveId] = useState(viewId);
   const [title, setTitle] = useState("");
@@ -95,12 +96,12 @@ export function DatabaseBlock({ props }: { props: Record<string, unknown> }) {
   /* `after` is what the per-row `+` sends. Both gestures end in the same place — the
      cursor in the new page's Name cell — because "add a page" is one thought whether
      it is asked for at the bottom or in the middle. */
-  const addRow = useCallback(async (after?: string) => {
+  const addRow = useCallback(async (after?: string, title = "") => {
     /* The cursor goes into the new row's Name cell: "add a page" should be one click
        and then typing, not one click and then a hunt for where it went. The created id
        is found by diffing, because the server decides it. */
     const before = new Set((load.status === "ready" ? load.database.rows : []).map((row) => row.id));
-    const next = await mutations.addRow("", after);
+    const next = await mutations.addRow(title, after);
     const created = next?.rows.find((row) => !before.has(row.id));
     if (created) setFocusRow(created.id);
     /* Rows are pages, so the sidebar's page list is stale the moment one exists. */
@@ -141,16 +142,42 @@ export function DatabaseBlock({ props }: { props: Record<string, unknown> }) {
   }, [patchViewConfig, view?.config]);
 
   const sortProperty = useCallback((propertyId: string, direction: SortDirection | null) => {
-    /* One sort at a time. `selectRows` already applies a list, so multi-sort is a UI
-       change later rather than a pipeline change now. */
-    patchViewConfig({ sorts: direction ? [{ propertyId, direction }] : [] });
-  }, [patchViewConfig]);
+    /* The interesting part is the array, not the click, so the rule lives in
+       `nextSorts` where it can be tested without a browser. */
+    const current = (view?.config ?? defaultViewConfig).sorts;
+    patchViewConfig({ sorts: nextSorts(current, propertyId, direction) });
+  }, [patchViewConfig, view?.config]);
 
   const iconProperty = useCallback((propertyId: string, icon: string) => {
     /* The primary property is not a row in `database_properties`, but it is still a
        property edit — the server routes the reserved id to the database row. */
     void mutations.patchProperty(propertyId, { icon });
   }, [mutations]);
+
+  /* Changing what a column holds.
+     ------------------------------------------------------------------------------
+     The server reads every stored value through the new type and refuses the change
+     when some of them cannot be read, answering with how many. That refusal is turned
+     back into a *choice*: `refusal` is the only place the table learns about it, and the
+     header menu renders one extra item — "Change to Date anyway / clears 1 cell" — which
+     comes back through this same function with `anyway` true. Nothing on this path
+     clears a value the person has not seen counted out loud. */
+  const typeRefusal = useMemo(() => {
+    if (refusal?.code !== "property_in_use") return null;
+    const details = refusal.details as { propertyId?: string; cells?: number; type?: PropertyType } | undefined;
+    if (!details?.propertyId || !details.type || typeof details.cells !== "number") return null;
+    return details as { propertyId: string; cells: number; type: PropertyType };
+  }, [refusal]);
+
+  const changeType = useCallback((propertyId: string, type: PropertyType, anyway = false) => {
+    void mutations.patchProperty(propertyId, anyway ? { type, clearUnconvertible: true } : { type });
+  }, [mutations]);
+
+  const refusalOf = useCallback((propertyId: string) => (
+    typeRefusal && typeRefusal.propertyId === propertyId
+      ? { type: typeRefusal.type, cells: typeRefusal.cells }
+      : null
+  ), [typeRefusal]);
 
   /* Which properties this view has hidden.
      `visibleProperties` is empty by default, and empty *means* "all of them" — so hiding
@@ -321,7 +348,7 @@ export function DatabaseBlock({ props }: { props: Record<string, unknown> }) {
             database={payload}
             view={{ ...view, config: view.config ?? defaultViewConfig }}
             focusRow={focusRow}
-                  onNewRow={() => void addRow()}
+                  onNewRow={(title) => void addRow(undefined, title)}
                   onNewRowAfter={(rowId) => void addRow(rowId)}
                   onReorderRows={reorderRows}
                   onDuplicateRow={duplicateRow}
@@ -338,6 +365,8 @@ export function DatabaseBlock({ props }: { props: Record<string, unknown> }) {
             onIconRow={iconRow}
             onResizeProperty={resizeProperty}
             onSortProperty={sortProperty}
+            onTypeProperty={changeType}
+            refusalOf={refusalOf}
             onCell={writeCell}
           />
         : <div className="db-block-state db-block-error">This view type is not built yet.</div>}

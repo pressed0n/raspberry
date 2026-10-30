@@ -11,6 +11,7 @@
    computed, a created-time is a fact, and a button is an action. They render as text
    and say so by being unclickable. */
 import { useEffect, useRef, useState } from "react";
+import { focusCellFrom } from "@/lib/database/cell-nav";
 import { optionIdsOf } from "@/lib/database/property-types/shared";
 import { formatCell } from "@/lib/database/properties";
 import type { CellValue, PropertyDef } from "@/lib/database/types";
@@ -111,7 +112,20 @@ export function CellEditor({ property, value, onCommit, autoFocus, placeholder }
       onChange={(event) => { setDraft(event.target.value); latest.current = event.target.value; }}
       onBlur={() => { if (latest.current !== text) onCommit(latest.current); }}
       onKeyDown={(event) => {
-        if (event.key === "Enter") { event.currentTarget.blur(); }
+        if (event.key === "Enter") {
+          event.preventDefault();
+          /* Enter means "next row, same column" — and when there is no row below, it
+             blurs, which commits. The blur is also what commits on the way down, so
+             there is no second write path here: focus moving *is* the save. */
+          if (!focusCellFrom(event.currentTarget, "down")) event.currentTarget.blur();
+        }
+        if (event.key === "ArrowDown" || event.key === "ArrowUp") {
+          /* Arrows move the grid without touching the value, which is how a person reads
+             a column; holding one down is therefore safe. */
+          if (event.altKey || event.metaKey || event.ctrlKey) return;
+          event.preventDefault();
+          focusCellFrom(event.currentTarget, event.key === "ArrowDown" ? "down" : "up");
+        }
         if (event.key === "Escape") { setDraft(text); latest.current = text; event.currentTarget.blur(); }
       }}
     />

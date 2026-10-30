@@ -60,7 +60,7 @@ export async function publicApi(
 }
 
 function fail(error: unknown, requestId: string) {
-  if (error instanceof AppError) return json({ error: { code: error.code, message: error.message } }, error.status, requestId);
+  if (error instanceof AppError) return json({ error: { code: error.code, message: error.message, ...(error.details === undefined ? {} : { details: error.details }) } }, error.status, requestId);
   if (error instanceof z.ZodError) return json({ error: { code: "invalid_input", message: error.issues[0]?.message ?? "Invalid input." } }, 400, requestId);
   /* The error *name* alone is not diagnosable: "TypeError" and a stack are the
      difference between a five-minute fix and a bisect. The message goes to the server

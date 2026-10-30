@@ -64,7 +64,13 @@ export function useDatabase(id: string, initial?: DatabasePayload) {
      column or a second row.
      --------------------------------------------------------------------------- */
   const [failure, setFailure] = useState<string | null>(null);
-  const dismissFailure = useCallback(() => setFailure(null), []);
+  /* The structured half of a failed write. `failure` is the sentence the banner shows;
+     `refusal` is the same failure with its code and details, for the one caller that can
+     act on it — changing a column's type when values in it cannot be read as the new one.
+     A banner can say "3 cells hold values this type cannot read"; only the details let
+     the menu offer the cell count as a button instead of a sentence. */
+  const [refusal, setRefusal] = useState<{ code: string; message: string; details?: unknown } | null>(null);
+  const dismissFailure = useCallback(() => { setFailure(null); setRefusal(null); }, []);
 
   const send = useCallback(async (path: string, method: string, body?: unknown): Promise<DatabasePayload | null> => {
     try {
@@ -72,7 +78,13 @@ export function useDatabase(id: string, initial?: DatabasePayload) {
         method,
         body: body === undefined ? undefined : JSON.stringify(body),
       });
-      if (alive.current) setLoad({ status: "ready", database });
+      if (alive.current) {
+        setLoad({ status: "ready", database });
+        /* A write that worked answers whatever the last one was refused for. Leaving it
+           would keep an "Clear 3 cells" item in a menu with nothing left to clear. */
+        setRefusal(null);
+        setFailure(null);
+      }
       /* Returned as well as applied, because one caller needs to know *which* row it
          just made in order to put the cursor in it. */
       return database;
@@ -82,6 +94,7 @@ export function useDatabase(id: string, initial?: DatabasePayload) {
          correct as of its last successful read, so the message rides alongside it
          instead of replacing it with an error page. */
       setFailure(error instanceof Error ? error.message : "That change could not be saved.");
+      setRefusal(error instanceof RequestError ? { code: error.code, message: error.message, details: error.details } : null);
       return null;
     }
   }, []);
@@ -90,7 +103,7 @@ export function useDatabase(id: string, initial?: DatabasePayload) {
   const mutations = useMemo(() => ({
     addProperty: (type: PropertyType, name: string, extra?: { config?: unknown; icon?: string }) =>
       send(`${base}/properties`, "POST", { type, name, ...extra, mutationId: crypto.randomUUID() }),
-    patchProperty: (propertyId: string, patch: { name?: string; config?: unknown; type?: PropertyType; icon?: string }) =>
+    patchProperty: (propertyId: string, patch: { name?: string; config?: unknown; type?: PropertyType; icon?: string; clearUnconvertible?: boolean }) =>
       send(`${base}/properties/${encodeURIComponent(propertyId)}`, "PATCH", { ...patch, mutationId: crypto.randomUUID() }),
     deleteProperty: (propertyId: string) =>
       send(`${base}/properties/${encodeURIComponent(propertyId)}?mutationId=${crypto.randomUUID()}`, "DELETE"),
@@ -112,5 +125,5 @@ export function useDatabase(id: string, initial?: DatabasePayload) {
       send(`${base}/rows/${encodeURIComponent(rowId)}`, "DELETE", { mutationId: crypto.randomUUID() }),
   }), [base, send]);
 
-  return { load, reload, apply, mutations, failure, dismissFailure };
+  return { load, reload, apply, mutations, failure, refusal, dismissFailure };
 }

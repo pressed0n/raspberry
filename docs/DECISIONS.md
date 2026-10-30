@@ -116,8 +116,22 @@ answered, the answer is recorded here so it is not re-opened by accident:
 | Are rows pages, or their own table? | **Rows are pages.** No row table exists. | `src/server/databases.ts` |
 | How is a cell write made idempotent? | Receipt envelope: every mutation carries an id, replaying it returns the stored result. | `src/server/databases.ts` |
 | Where do formulas evaluate? | Server-side, pure, **never `eval`** — a parsed AST walked by the evaluator. | B44, not yet built |
-| What does an empty value sort as? | Last, in **both** directions — this is documented on every `compare` and currently violated by descending sort. See the open risks in `STATE.md`. | `src/lib/database/properties.ts` |
-| Does retyping a property with data coerce or refuse? | Code **refuses** whenever any cell holds a value (`409 property_in_use`); the plan wanted coercion-with-refusal-on-failure. No UI calls it yet — a decision still owed. | `src/server/databases.ts` |
+| What does an empty value sort as? | Last, in **both** directions. Enforced in `sortRows`, which decides emptiness *before* applying the direction — negating a comparator also negates its promise, which is how `Z → A` used to float blanks to the top. | `src/lib/database/rows.ts` |
+| Does retyping a property with data coerce or refuse? | **Coerce, and refuse only what it cannot read.** One rule: read the old cell through the new type's own `coerce`. Unreadable cells are counted and the change is refused with that count; `clearUnconvertible: true` is the caller saying "clear them". A curated allow-list of text-reading targets rather than 16×16 conversions, because reading a date's *rendered label* back as a date shifts days across timezones. | `src/lib/database/convert.ts`, `src/server/databases.ts` |
+| Who decides a property cannot be written? | The type module, and the write path reads it. `readOnly`/`derived` used to be documentation only — a formula column accepted typed values. Now `patchRow` refuses per cell, before any write. | `src/lib/database/property-types/*.ts`, `src/server/databases.ts` |
+| Where does a "this will lose data" count live? | In the **label** of the destructive menu item, not in `hint`. `MenuItem`'s `hint` renders as a `title` tooltip, and a count that only appears on hover is not there when the person is deciding. | `src/components/database/property-header.tsx` |
+| How does the client know *how many* cells a refusal would clear? | `AppError` carries optional `details`, the envelope forwards it, and `RequestError` keeps it. Without the number the client can only print a sentence and hope. | `src/server/service.ts`, `src/server/http.ts`, `src/lib/api-client.ts` |
+| Where does the "new page" affordance live? | As the table's **last `<tr>`**, built from the same gutter / name-cell / icon-slot / `+` cells as a real row. The measured proof: the placeholder's left edge equals a real name's (520px) at 1400 and 390. A button beside the table is a different kind of action with its own alignment to argue about. | `src/components/database/table-view.tsx` |
+| What does Enter do in a cell? | Moves down the same column (and commits, because moving focus *is* the save). Tab stays the browser's, since every editable cell is a real field. Written against the DOM, not the row-set, so it moves through the table that is on screen. | `src/lib/database/cell-nav.ts` |
 
-The two rows above that cite `STATE.md` are the live defects. They are recorded in both
-places deliberately: the decision is history, the defect is state.
+The last six rows were settled on 30 October, all of them by a probe that disagreed with the
+prose rather than by reading the code again. Two of those disagreements are worth keeping:
+
+- **`MenuItem`'s `hint` is a tooltip.** The "clears 2 cells" count was written into `hint`
+  first, and it existed on screen only while hovering. A destructive confirmation whose number
+  is invisible is not a confirmation.
+- **A copy of the app is not the app unless the project directory is the copy.** `next dev`
+  resolves its project from its own working directory, so a server started "from the copy"
+  through a wrapper could serve the *repo* while the probe hunted for the copy's page — and it
+  looked like the feature was broken. `run-b40-probe.ps1` now invokes `next` directly with
+  `-WorkingDirectory` set to the copy.

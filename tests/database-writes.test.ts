@@ -403,6 +403,68 @@ test("the table reads back what was written, through the same pipeline the view 
 });
 
 /* ---------------------------------------------------------------------------
+   Cells a type refuses
+   ---------------------------------------------------------------------------
+   `readOnly` and `derived` are declared by the type modules themselves and, until
+   these two tests existed, nothing on the write path read them: a formula column
+   accepted a typed value and then showed it as though the expression had produced it,
+   and a Created time column accepted one too and silently dropped it. Both failures
+   are invisible in the payload — which is why the assertion is on the *error*, and a
+   second one on the stored table. */
+
+test("a computed property refuses a value instead of storing one it will never use", async () => {
+  const value = await fresh();
+  const withProperty = await value.databases.addProperty(owner, value.database.id, { type: "formula", name: "Total", mutationId: randomUUID() });
+  const propertyId = withProperty.properties[0].id;
+  const withRow = await value.databases.addRow(owner, value.database.id, { title: "Ship it", mutationId: randomUUID() });
+
+  const error = await value.databases
+    .patchRow(owner, value.database.id, withRow.rows[0].id, { cells: { [propertyId]: 42 }, mutationId: randomUUID() })
+    .then(() => null, (thrown: unknown) => thrown);
+
+  assert.ok(error instanceof AppError);
+  assert.equal(error.status, 400);
+  assert.equal(error.code, "property_is_computed");
+  const [stored] = await value.db.transaction(async (sql) => sql.query("SELECT COUNT(*) AS count FROM database_cells WHERE property_id=$1", [propertyId]));
+  assert.equal(Number((stored as { count: number }).count), 0);
+});
+
+test("a property Raspberry sets itself refuses a value, even a plausible one", async () => {
+  const value = await fresh();
+  const withProperty = await value.databases.addProperty(owner, value.database.id, { type: "createdTime", name: "Made", mutationId: randomUUID() });
+  const propertyId = withProperty.properties[0].id;
+  const withRow = await value.databases.addRow(owner, value.database.id, { title: "Ship it", mutationId: randomUUID() });
+
+  const error = await value.databases
+    .patchRow(owner, value.database.id, withRow.rows[0].id, { cells: { [propertyId]: "2026-10-30T00:00:00.000Z" }, mutationId: randomUUID() })
+    .then(() => null, (thrown: unknown) => thrown);
+
+  assert.ok(error instanceof AppError);
+  assert.equal(error.status, 400);
+  assert.equal(error.code, "property_is_read_only");
+});
+
+test("one request cannot smuggle a computed value in beside a writable one", async () => {
+  /* The check is per cell, not per request: a patch that names both a text and a formula
+     column must not write the text one and quietly ignore the other, because a client
+     that got a 200 would believe both landed. */
+  const value = await fresh();
+  const text = await value.databases.addProperty(owner, value.database.id, { type: "text", name: "Note", mutationId: randomUUID() });
+  const formula = await value.databases.addProperty(owner, value.database.id, { type: "formula", name: "Total", mutationId: randomUUID() });
+  const withRow = await value.databases.addRow(owner, value.database.id, { title: "Ship it", mutationId: randomUUID() });
+
+  await assert.rejects(
+    value.databases.patchRow(owner, value.database.id, withRow.rows[0].id, {
+      cells: { [text.properties[0].id]: "hello", [formula.properties[1].id]: 1 },
+      mutationId: randomUUID(),
+    }),
+    (thrown: AppError) => thrown.code === "property_is_computed",
+  );
+  const after = await value.databases.get(owner, value.database.id);
+  assert.equal(after.rows[0].cells[text.properties[0].id] ?? null, null);
+});
+
+/* ---------------------------------------------------------------------------
    Order — the per-row `+` and the grip
    ---------------------------------------------------------------------------
    A row's position is not a field of the row the way a title is: it only means anything

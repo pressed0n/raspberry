@@ -17,11 +17,11 @@ keeps it from rotting the way its predecessors did.
 
 <!-- SNAPSHOT:BEGIN — checked by tests/docs-freshness.test.ts -->
 
-- **Tests:** 397 passing, 0 failing, across 31 test files.
+- **Tests:** 415 passing, 0 failing, across 32 test files.
 - **Typecheck:** `tsc --noEmit` clean.
-- **Committed through:** `faa7a7e` — fix(check-docs): make the snapshot converge with the commit workflow.
+- **Committed through:** `af5297c` — docs: snapshot at the commit above.
 - **Schema:** migrations 1–7.
-- **Working tree:** clean.
+- **Working tree:** dirty (uncommitted work in progress).
 <!-- SNAPSHOT:END -->
 
 Run it yourself, it takes four seconds:
@@ -60,60 +60,76 @@ Enough to be concrete without the 42 KB of narrative that used to be here (it is
   properties/views/rows/cells, a table view with gutter, row drag, duplicate, trash,
   column menus, icon pickers and hidden properties. **This is the live workfront.**
 
+Shipped on 30 October 2026, after the last reconciliation, and each proved in a browser
+(`scripts/run-b40-probe.ps1`: 15/15 at 1400×900, 9/9 at 390×844):
+
+- **`Change type` (B40).** The property menu lists every type that can hold a value, and a
+  change *converts* what it can read — `src/lib/database/convert.ts`, one rule: read the old
+  cell through the new type's own `coerce`. Cells it cannot read are counted, the change is
+  refused with that count in `error.details`, and the menu then offers the second, explicit
+  answer (`Clear 2 cells and use Number`). Nothing is ever cleared without being counted out
+  loud first.
+- **Multi-sort.** Sorting a second column adds a key instead of replacing the first
+  (`nextSorts` in `src/lib/database/rows.ts`, tested). The pipeline always accepted a list;
+  only the UI could not produce one.
+- **The trailing row (B41).** The last `<tr>` of the table is the `New page` row, built from
+  the same gutter/name/icon-slot cells as a real row so it lands on the same pixels (520px
+  measured at both widths). Typing a name and pressing Enter creates the page with that
+  title; the row stays ready for the next one.
+- **Keyboard.** Enter in a cell moves down the column, Arrow keys move without editing,
+  Escape reverts (`src/lib/database/cell-nav.ts`). Tab is the browser's own, because every
+  editable cell is a real field.
+
 ## What is next — in this order
 
 The database programme is numbered B38–B45. B38, B39 and all of B40a–B40h are shipped.
 What follows is what the code does *not* yet have, verified against disk rather than
 against a plan:
 
-1. **Finish the property rail (B40).** `Change type` — nothing exists to fill in: there is
-   only a comment where it goes (`property-header.tsx:239`) and a `<MenuHeading>` standing
-   in for it. The server half does exist and is tested (`patchProperty` refuses a retype
-   with `409 property_in_use`). Then property reorder (no route, no prop),
-   filter-from-property-menu, multi-sort — the model supports a list and the read path
-   handles one (`table-view.tsx:163`), but the write replaces the array with a single entry
-   (`database-block.tsx:146`), so the UI can never produce more than one sort — and the
-   `editing:{row,property}` keyboard model — Enter down, Tab right. None of that keyboard
-   model exists yet.
-2. **The trailing row (B41, one item).** `+ New page` is still a button after the table
-   rather than a last `<tr>`. Cheapest real win on the board, and it unlocks type-to-create.
-3. **Options and status (B42).** Today a Select/Status cell is a native `<select>`.
+1. **Finish the property rail (B40) — two items left.** `Change type`, multi-sort and the
+   keyboard model shipped; what is still missing is **property reorder** (no route, no prop)
+   and **filter-from-property-menu** (the read path filters, nothing writes a filter). Both
+   need a UI decision before they need code — a filter bar is a new piece of chrome, and the
+   reorder can be a menu item or a header drag, which are different gestures.
+2. **Options and status (B42).** Today a Select/Status cell is a native `<select>`.
    Needs tag pills, option CRUD, create-on-the-fly, and editable status groups. This is
    the wishlist's one stated difference from Notion.
-4. **Display semantics (B43).** `display: bar|ring` is declared in the type config and
+3. **Display semantics (B43).** `display: bar|ring` is declared in the type config and
    read by nothing. Same for `color` and `showNumber`. Also end-date and granularity UI.
-5. **Formulas (B44).** Nothing exists beyond a config stub. Parser → AST → evaluator,
+4. **Formulas (B44).** Nothing exists beyond a config stub. Parser → AST → evaluator,
    cycle detection, errors as values. **Never `eval`** — this is a binding architecture
    rule, not a preference. Largest single unit remaining.
-6. **Views (B45).** Blocked on the view registry: `src/components/database/views/` with
+5. **Views (B45).** Blocked on the view registry: `src/components/database/views/` with
    `viewRenderers: Record<ViewType, ViewComponent>` does not exist, and the API has no
    `POST /views`. Registry first, then view CRUD, then Board, Calendar, List, Gallery.
 
-Two prerequisites the plan implies that the code has not yet paid for: **the view
-registry before B45**, and **the `readOnly`/`derived` guard below before cell writing
-grows any further**.
+The `readOnly`/`derived` guard that used to sit in this list as a prerequisite **is done**:
+`patchRow` refuses a value written to a computed or self-setting property, per cell, with a
+400 that names the property. Cell writing can grow now.
 
 **B21 (more Notion blocks) is waiting on the owner.** The instruction is explicit: the
 owner supplies the block list, do not guess at it.
 
 ## Open risks — named because they are live code, not hypotheticals
 
-These came out of reconciling the plans against the source, and are the things most
-likely to bite:
+These came out of reconciling the plans against the source. Two were fixed on 30 October and
+are kept here, with their tests named, because the *reason* they existed is the useful part:
 
-- **`patchRow` does not honour `readOnly` or `derived`.** It calls `coerce` and stores
-  the result for any property. `createdTime` is accidentally safe because its `coerce`
-  refuses everything; `button` and `formula` are unguarded, and a formula cell write
-  would store a number. No test covers a write to a derived property.
-  (`src/server/databases.ts`, the `patchRow` path.)
-- **Descending sort inverts "empties last".** `src/lib/database/rows.ts:88` negates the
-  comparator (`descending ? -result : result`), so empties float to the top on a descending
-  sort while every `compare` documents empties-last-in-both-directions. The fix belongs in
-  `sortRows`, not in 16 `compare`s. Note the same file's `filtered`/`sorted` path at line
-  158 is where the ordering reaches the UI.
-- **Retyping is stricter than the plan.** The plan wanted coercion with a `409` only
-  when coercion fails. The code refuses whenever any cell has a value, regardless. No UI
-  calls it yet, so this is a decision waiting to be made rather than a bug.
+- ~~**`patchRow` does not honour `readOnly` or `derived`.**~~ **Fixed.** The refusal is
+  declared by each type module (`created-time.ts`, `button.ts`, `formula.ts` all say so in
+  their own comments), so the write path now reads it: per cell, before any write, with a
+  400 that names the property. `tests/database-writes.test.ts` covers a formula write, a
+  `createdTime` write, and a mixed request that tries to smuggle a computed value in beside
+  a writable one.
+- ~~**Descending sort inverts "empties last".**~~ **Fixed.** Emptiness is now decided before
+  the direction is applied, so `Z → A` keeps blank rows at the bottom, which is what every
+  `compare` documents. `tests/database-columns.test.ts` pins it for a number column, a text
+  column, and a two-key sort.
+- **Retyping is now coercion with a counted refusal.** `patchProperty` converts what the new
+  type can read and refuses the rest with `409 property_in_use` plus
+  `details: { propertyId, cells, type }`; `clearUnconvertible: true` is the caller's answer.
+  `src/lib/database/convert.ts` (one rule, an allow-list of text-reading targets) and
+  `tests/database-type-change.test.ts` (9 tests).
 
 ## Parked — and the split is the point
 

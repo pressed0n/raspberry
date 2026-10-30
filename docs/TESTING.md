@@ -91,6 +91,39 @@ node scripts/verify-db-gutter.mjs 1400 900            # new, tracked-style probe
 node scripts/scratch/cdp-db-gutter.mjs 1400 900    # the historical one
 ```
 
+### Proving a write without writing one
+
+`scripts/verify-database-b40.mjs` is the pattern for anything that ends in a request. It
+patches `window.fetch` *inside the page* before touching the UI: every non-`GET` call to
+`/api/databases*` is recorded and rejected, so the app sees a failed save and the owner's
+database keeps its values. The assertion is then the **body the UI built**:
+
+```js
+await b.type("Probe page");
+await b.key("Enter", { code: "Enter", keyCode: 13 });
+const sent = await b.evaluate(`window.__writes.find((w) => /\\/rows$/.test(w.url))`);
+b.check("typing a name asks for one page with that title",
+  JSON.parse(sent.body).title === "Probe page", sent.body);
+```
+
+When a write must **land** to prove an answer — a `409` with a count, and the destructive item
+that answers it — it lands on a disposable instance instead: `scripts/run-b40-probe.ps1` copies
+the project to `artifacts/qa-run/`, points it at its own `data/qa.sqlite`, seeds it with
+`scripts/seed-qa.mjs`, runs the probe at 1400 and 390, and stops the server. `window.__allow`
+gates the one request that is meant to succeed.
+
+Three things that probe cost, so they are not paid twice:
+
+- **The copy must be the project directory.** `next dev` resolves its project from its working
+  directory; starting it through a wrapper while the probe looked for another tree's page
+  produced "No pages yet / Loading…" and looked like a broken feature. Invoke `next` directly
+  from the copy.
+- **Never delete a copy that contains a `node_modules` junction** with `Remove-Item -Recurse`:
+  it can follow the link. `cmd /c rmdir` the junction first.
+- **A refusal is not a failure.** The probe's first run opened the *title* column's menu, found
+  `Change type` disabled, and reported a broken feature. A disabled item, or a missing second
+  column, is a `SKIP` with its reason printed.
+
 ### Assert pixels, not class names
 
 The gutter harness states the principle better than any summary: *"Asserting

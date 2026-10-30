@@ -78,7 +78,9 @@ This is the single most useful paragraph in the file. A page save, top to bottom
 
 Databases have their own layer on top of the same spine:
 `src/server/databases.ts` (service) → `src/lib/database/properties.ts` (schema/edit rules) →
-`src/lib/database/rows.ts` (cells, ordering, `sortRows`) →
+`src/lib/database/rows.ts` (cells, ordering, `sortRows`, `nextSorts`) →
+`src/lib/database/convert.ts` (what a type change does to the values already there) →
+`src/lib/database/cell-nav.ts` (Enter/arrows between rendered cells) →
 `src/lib/database/property-types/<type>.ts` (one file per property type; `shared.ts` is the
 common contract) → UI in `src/components/database/`.
 
@@ -337,6 +339,9 @@ and use `scripts/browser-session.mjs` so the browser profile cleans itself up.
 | `scripts/gen-palette.mjs` | Regenerates the colour palette data used by `src/lib/palette.ts` |
 | `scripts/browser-session.mjs` | **Tracked CDP browser session** for UI verification; removes its own Chrome profile |
 | `scripts/verify-db-gutter.mjs` | The canonical row-gutter probe (20 assertions, 1400/390): alignment, reuse-by-pixel, heights |
+| `scripts/verify-database-b40.mjs` | Proves the table's write gestures **without writing**: patches `window.fetch` in the page, asserts the bodies the UI builds, and can let one real `PATCH` through on a disposable instance (`ALLOW_WRITES=1`, the 409 and the "Clear 2 cells" answer) |
+| `scripts/seed-qa.mjs` | Seeds a disposable instance (`BASE` env, default :3100) with one page holding one database: a title column, a text column, three rows. Used by `run-b40-probe.ps1`. Never points at `data/raspberry.sqlite` |
+| `scripts/run-b40-probe.ps1` | Starts a disposable copy of the app on :3100 from `artifacts/qa-run/`, seeds it, runs `verify-database-b40.mjs` at 1400×900 and 390×844, stops it. The owner's database is never touched |
 | `scripts/read-spec-page.mjs` | Reads one spec page out of the running app |
 | `scripts/verify-local.ps1` | Local smoke verification |
 | `scripts/verify-session.ps1` | Session/auth verification |

@@ -27,6 +27,7 @@ import {
   type ViewType,
 } from "../lib/database/types";
 import { resolveProperty, type PropertyTypeSpec } from "../lib/database/properties";
+import { convertCell } from "../lib/database/convert";
 import type { Database, Sql } from "./database";
 import { AppError, access, databaseScope, fingerprint, receipt, remember, type Actor } from "./service";
 
@@ -237,20 +238,50 @@ export class DatabaseService {
       }
       const [row] = await sql.query("SELECT * FROM database_properties WHERE id=$1 AND database_id=$2", [propertyId, id]);
       if (!row) throw new AppError(404, "not_found", "That property is unavailable.");
-      const nextType = data.type ?? property(row).type;
-      /* Re-typing a column reinterprets the values already in it. Where the new type
-         cannot read an existing value the old one was showing, refuse rather than
-         silently blank the column — a table that loses data on a menu click is worse
-         than a menu item that says "not with values in it". */
-      if (data.type && data.type !== property(row).type) {
-        const [used] = await sql.query("SELECT COUNT(*) AS used FROM database_cells WHERE property_id=$1 AND value IS NOT NULL", [propertyId]);
-        if (Number(used?.used ?? 0) > 0) throw new AppError(409, "property_in_use", "Clear this property's cells before changing its type.");
-      }
+      const before = property(row);
+      const nextType = data.type ?? before.type;
       const config = { value: readConfig(nextType, row.config) };
       if (data.config !== undefined) {
         const parsed = configSchemas[nextType].safeParse(data.config);
         if (!parsed.success) throw new AppError(400, "invalid_config", "These settings do not fit that property type.");
         config.value = parsed.data as Record<string, unknown>;
+      }
+      /* Re-typing a column reinterprets the values already in it — it does not throw
+         them away, and it does not keep them under a type that can no longer read them.
+         Every stored value is read through the *new* type (see `convert.ts`); values it
+         can read are rewritten in the new shape, values it cannot are counted.
+         With unreadable values present the change is refused, because a table that
+         loses data on a menu click is worse than a menu item that says how many cells
+         it would clear. `clearUnconvertible` is the caller saying "I mean it" — the
+         count comes back as `details`, so the client can offer exactly that sentence
+         instead of a number the person has to guess at. */
+      if (data.type && data.type !== before.type) {
+        const cells = await sql.query("SELECT row_id,value FROM database_cells WHERE property_id=$1 AND value IS NOT NULL", [propertyId]);
+        const kept: { rowId: string; value: CellValue }[] = [];
+        let unreadable = 0;
+        for (const cell of cells) {
+          let stored: CellValue = null;
+          try { stored = JSON.parse(text(cell.value)) as CellValue; } catch { /* a corrupt cell reads as empty, as it does in `rows()` */ }
+          const converted = convertCell(before, stored, nextType, config.value);
+          if (!converted.ok) unreadable += 1;
+          else kept.push({ rowId: text(cell.row_id), value: converted.value });
+        }
+        if (unreadable > 0 && !data.clearUnconvertible) {
+          throw new AppError(
+            409,
+            "property_in_use",
+            `${unreadable} ${unreadable === 1 ? "cell holds a value" : "cells hold values"} that ${nextType} cannot read. Change the type anyway to clear ${unreadable === 1 ? "it" : "them"}.`,
+            { propertyId, cells: unreadable, type: nextType },
+          );
+        }
+        await sql.query("DELETE FROM database_cells WHERE property_id=$1", [propertyId]);
+        for (const cell of kept) {
+          if (cell.value === null) continue;
+          await sql.query(
+            "INSERT INTO database_cells(row_id,property_id,value,updated_at) VALUES($1,$2,$3,$4) ON CONFLICT(row_id,property_id) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at",
+            [cell.rowId, propertyId, JSON.stringify(cell.value), now],
+          );
+        }
       }
       await sql.query(
         "UPDATE database_properties SET name=$1,type=$2,config=$3,icon=$4 WHERE id=$5",
@@ -507,11 +538,27 @@ export class DatabaseService {
         const [prop] = await sql.query("SELECT type,config FROM database_properties WHERE id=$1 AND database_id=$2", [propertyId, id]);
         if (!prop) throw new AppError(404, "not_found", "That property is unavailable.");
         const def = property(prop as Row);
+        const spec = resolveProperty(def) as PropertyTypeSpec;
+        /* `readOnly` and `derived` are promises the type modules already make —
+           `created-time` says "nobody can claim it was created at a time it was not",
+           `button` says "the write path refuses a value rather", `formula` says "there
+           is no `database_cells` row". Until this guard existed none of that was true:
+           the write path coerced and stored whatever it was given, so a formula column
+           could be typed into and would then display the typed value as if the
+           expression had produced it. Refusing here — loudly, before any write — is
+           what makes those three comments honest. It is checked per cell rather than on
+           the request because one request can carry writable and unwritable columns. */
+        if (spec.derived) {
+          throw new AppError(400, "property_is_computed", `"${def.name}" is computed from other properties and cannot be edited.`);
+        }
+        if (spec.readOnly) {
+          throw new AppError(400, "property_is_read_only", `"${def.name}" is set by Raspberry and cannot be edited.`);
+        }
         /* The value is normalised by the property's own `coerce` — the same function
            the editor and the tests use — so "1 234,50" and 1234.5 cannot both end up
            stored in a number column. Empty becomes *no row*, one representation of
            "nothing" for sorts, filters and exports to agree on. */
-        const value = (resolveProperty(def) as PropertyTypeSpec).coerce(raw, def.config);
+        const value = spec.coerce(raw, def.config);
         if (value === null) await sql.query("DELETE FROM database_cells WHERE row_id=$1 AND property_id=$2", [rowId, propertyId]);
         else {
           await sql.query(

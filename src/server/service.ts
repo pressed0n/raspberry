@@ -5,7 +5,14 @@ import { type Database, type Sql, LOCAL_USER_ID, LOCAL_WORKSPACE_ID } from "./da
 
 export type Actor = { userId: string; workspaceId: string; clientId: string };
 export const localActor = (clientId = "browser"): Actor => ({ userId: LOCAL_USER_ID, workspaceId: LOCAL_WORKSPACE_ID, clientId });
-export class AppError extends Error { constructor(public status: number, public code: string, message: string) { super(message); } }
+export class AppError extends Error {
+  /* `details` is the error's *argument*, not its decoration: a refusal that says "3
+     cells hold values this type cannot read" has to hand the client the 3, or the
+     client can only print a sentence and hope. It travels in the envelope beside code
+     and message; nothing else in the service reads it, so adding it later to another
+     error costs no refactor. */
+  constructor(public status: number, public code: string, message: string, public details?: unknown) { super(message); }
+}
 type Row = Record<string, unknown>;
 function page(row: Row): Page {
   const content = JSON.parse(String(row.content)) as Page["content"];

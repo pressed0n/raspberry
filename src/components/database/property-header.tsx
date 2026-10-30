@@ -14,12 +14,20 @@
 import { useEffect, useRef, useState } from "react";
 import { ArrowDownAZ, ArrowUpAZ, ChevronDown, Copy, EyeOff, Trash, X } from "lucide-react";
 import { resolveProperty } from "@/lib/database/properties";
-import type { PropertyDef } from "@/lib/database/types";
+import { propertyTypes, type PropertyDef, type PropertyType } from "@/lib/database/types";
 import { iconNameFor, PropertyIcon } from "./property-icons";
 import { IconPicker } from "./icon-picker";
 import { MenuDivider, MenuHeading, MenuItem, MenuSub, MenuSurface, useMenuDismiss } from "./menu";
 
 export type SortDirection = "ascending" | "descending";
+
+/* Types a column can be changed *into*: everything that holds a value. A `formula`,
+   `createdTime` or `button` column is written by Raspberry, never by a person, so
+   offering it as a destination would only produce a column nobody can fill. */
+const changeable = propertyTypes.filter((type) => {
+  const spec = resolveProperty({ type });
+  return !spec.readOnly && !spec.derived;
+});
 
 /* Below this a column is a sliver; above it, dragging stops feeling like a gesture. */
 export const MIN_COLUMN_WIDTH = 96;
@@ -38,6 +46,8 @@ export function PropertyHeader({
   onHide,
   onResize,
   onCommitWidth,
+  onType,
+  refusal,
 }: {
   property: PropertyDef;
   sort: SortDirection | null;
@@ -51,6 +61,11 @@ export function PropertyHeader({
   onHide?: () => void;
   onResize?: (width: number) => void;
   onCommitWidth?: (width: number) => void;
+  /* `anyway` is the caller's answer to a refusal: convert what converts, clear the rest. */
+  onType?: (type: PropertyType, anyway?: boolean) => void;
+  /* Set when the last attempt to change *this* column's type was refused, and how many
+     cells it would clear. The menu turns that into a second, explicit choice. */
+  refusal?: { type: PropertyType; cells: number } | null;
 }) {
   const [open, setOpen] = useState(false);
   const [iconOpen, setIconOpen] = useState(false);
@@ -236,8 +251,46 @@ export function PropertyHeader({
         ) : null}
 
         <MenuDivider />
-        {/* Where "Change type ›" will go. Until it exists, saying what the column *is*
-            costs one line and answers the question the menu otherwise leaves open. */}
+        {/* What the column *is*. Every type that can hold a value is listed; the ones
+            that cannot be typed into (`formula`, `createdTime`, `button`) are not, because
+            a column nobody can fill is not a column anyone wants to change into. */}
+        <MenuSub icon={<PropertyIcon name={iconNameFor(property)} size={14} />} label="Change type" disabled={!onType}>
+          {changeable.map((type) => {
+            const spec = resolveProperty({ type });
+            return (
+              <MenuItem
+                key={type}
+                icon={<PropertyIcon name={iconNameFor({ type })} size={14} />}
+                label={spec.label}
+                check={type === property.type}
+                onSelect={() => {
+                  closeMenu();
+                  if (type !== property.type) onType?.(type);
+                }}
+              />
+            );
+          })}
+          {/* The answer to a refusal. The type change is refused rather than obeyed when
+              existing cells hold values the new type cannot read; the number in this label
+              is the one the refusal counted. It is in the *label* rather than in `hint`
+              because `hint` renders as a tooltip — and a count that only appears on hover
+              is not there when the person is deciding. */}
+          {refusal ? (
+            <>
+              <MenuDivider />
+              <MenuItem
+                icon={<Trash size={14} aria-hidden />}
+                label={`Clear ${refusal.cells} ${refusal.cells === 1 ? "cell" : "cells"} and use ${resolveProperty({ type: refusal.type }).label}`}
+                hint="Values this type cannot read are removed. The rest are kept."
+                danger
+                onSelect={() => {
+                  closeMenu();
+                  onType?.(refusal.type, true);
+                }}
+              />
+            </>
+          ) : null}
+        </MenuSub>
         <MenuHeading>{resolveProperty(property).label}</MenuHeading>
       </MenuSurface>
 

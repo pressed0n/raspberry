@@ -15,7 +15,7 @@
    The callbacks are optional on purpose. A phase that has not built row creation yet
    renders the table without the affordances that would need it, instead of shipping a
    button that does nothing. */
-import { Copy, EyeOff, Plus, Trash2 } from "lucide-react";
+import { Copy, EyeOff, Trash2 } from "lucide-react";
 import DragLayer, { type GhostView, type LineView } from "@/components/drag-layer";
 import { FrameAnchor } from "@/components/frame-anchor";
 import { useCallback, useMemo, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
@@ -98,6 +98,8 @@ export function TableView({
   onIconRow,
   onResizeProperty,
   onSortProperty,
+  onTypeProperty,
+  refusalOf,
   onCell,
 }: {
   database: DatabasePayload;
@@ -105,7 +107,10 @@ export function TableView({
   /* The row a click just created: its Name cell takes the cursor, so adding an entry
      is one click followed by typing. */
   focusRow?: string;
-  onNewRow?: () => void;
+  /* "New page" is one thought at the bottom or in the middle; `onNewRowAfter` is the
+     same action aimed at a row. Both may carry a title, because the trailing row's whole
+     point is that you type before the page exists. */
+  onNewRow?: (title?: string) => void;
   /* `+` beside a row means "a page *here*", not "a page at the bottom". The two are
      different requests, so they are different callbacks. */
   onNewRowAfter?: (rowId: string) => void;
@@ -132,6 +137,13 @@ export function TableView({
      at one request instead of one per pointermove. */
   onResizeProperty?: (propertyId: string, width: number) => void;
   onSortProperty?: (propertyId: string, direction: SortDirection | null) => void;
+  /* Changing what a column holds. `anyway` is only ever true when the person answered
+     the refusal this table showed them — the table never decides on its own to drop
+     values that the new type cannot read. */
+  onTypeProperty?: (propertyId: string, type: PropertyType, anyway?: boolean) => void;
+  /* The refusal for one column: which type was asked for and how many cells it would
+     clear. `null` (or absent) means "no refusal to answer". */
+  refusalOf?: (propertyId: string) => { type: PropertyType; cells: number } | null;
   /* One callback for every cell, keyed by row and property. The Name column passes
      `primaryPropertyId`, because the primary property *is* `pages.title` — the block
      routes that id to a title write and the id of a real property to a cell write,
@@ -173,6 +185,10 @@ export function TableView({
      because nothing outside the renderer has any business knowing which rows are
      ticked until there is a bulk action to spend the ticks on. */
   const [selected, setSelected] = useState<ReadonlySet<string>>(() => new Set<string>());
+  /* The trailing row's half-typed name. It lives here rather than in the block because
+     it is not data until Enter or blur — a draft that reached the database would create
+     a page per keystroke. */
+  const [newTitle, setNewTitle] = useState("");
   const [dragging, setDragging] = useState<string | null>(null);
   const [over, setOver] = useState<{ id: string; below: boolean } | null>(null);
   /* The ghost and the insertion line are `DragLayer`'s — the same two things the
@@ -358,6 +374,10 @@ export function TableView({
                   onHide={onHideProperty && property.id !== primaryPropertyId ? () => onHideProperty(property.id) : undefined}
                   onResize={onResizeProperty ? (next) => setDrifting((was) => ({ ...was, [property.id]: next })) : undefined}
                   onCommitWidth={onResizeProperty ? (next) => onResizeProperty(property.id, next) : undefined}
+                  /* The title column stays Text: a row here is a page, and a page's name
+                     is the one thing the sidebar, the crumbs and the search all read. */
+                  onType={onTypeProperty && property.id !== primaryPropertyId ? (type, anyway) => onTypeProperty(property.id, type, anyway) : undefined}
+                  refusal={refusalOf?.(property.id) ?? null}
                 />
               </th>
             ))}
@@ -518,37 +538,87 @@ export function TableView({
               <td className="db-cell db-cell-filler" />
             </tr>
           ))}
+          {/* B41 — the trailing row.
+              The old control was a button *below* the table, which meant "add a page"
+              was a different kind of action from every other thing a table does: no
+              column, no row, nothing to type into. Notion's trick is that the last row of
+              the table *is* the control, so "add a page and name it" is one gesture. It
+              also makes the empty table self-explanatory: the only row visible is the one
+              that makes the first real row.
+
+              It is a real `<tr>` with real `<td>`s so the columns line up without a
+              placeholder width to keep in sync, and it only appears when the caller can
+              actually add a page — a read-only table renders neither. */}
+          {onNewRow ? (
+            <tr className="db-row db-row-new">
+              {/* The gutter cell is what keeps this row's columns on the same pixels as
+                  every other row. It is empty — there is no row to grip yet — but its
+                  absence shifted the whole row 19px right, which the probe
+                  (`scripts/verify-database-b40.mjs`) measures rather than assumes. */}
+              <td className="db-cell db-gutter" />
+              {set.properties.map((property, index) => (
+                <td
+                  key={property.id}
+                  className={`db-cell${index === 0 ? " db-cell-name is-title" : ` db-cell-${property.type}`}`}
+                  onMouseDown={index === 0 ? undefined : (event) => event.preventDefault()}
+                  onClick={index === 0 ? undefined : () => onNewRow()}
+                >
+                  {index === 0 ? (
+                    /* The same `.db-name-cell` a real row uses, with the same 20px icon
+                       slot left empty — there is no page yet, so there is no icon to
+                       click, but the *slot* is what puts this placeholder's text on the
+                       same pixel as every name in the column. Building it as a bare
+                       input instead put it 29px to the left, which the probe measures. */
+                    <div className="db-name-cell">
+                      <span className="db-entry-icon" aria-hidden />
+                      <input
+                        className="db-cell-input db-new-title"
+                        placeholder="New page"
+                        value={newTitle}
+                        aria-label="Name for a new page"
+                        onChange={(event) => setNewTitle(event.target.value)}
+                        onMouseDown={(event) => event.stopPropagation()}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter") return;
+                          event.preventDefault();
+                          /* Enter creates the page with whatever has been typed so far and
+                             leaves the row ready for the next one, which is what makes
+                             entry fast: name, Enter, name, Enter. */
+                          onNewRow(newTitle.trim());
+                          setNewTitle("");
+                        }}
+                        onBlur={() => {
+                          /* Leaving the field is not "cancel" — a typed name that vanishes
+                             on tab-away is the kind of loss that stops people typing at all. */
+                          if (newTitle.trim()) onNewRow(newTitle.trim());
+                          setNewTitle("");
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                </td>
+              ))}
+              {/* The per-row `+` cell, present and empty: it is the cell that makes this
+                  row four cells wide like every other row, so the columns after the name
+                  stay where the header put them. */}
+              {onNewRowAfter ? <td className="db-cell db-cell-add" onClick={() => onNewRow()} /> : null}
+              {onCell ? <td className="db-cell db-cell-filler" onClick={() => onNewRow()} /> : null}
+            </tr>
+          ) : null}
         </tbody>
       </table>
     </div>
-      {/* A compact button, not a full-width bar: a 900px button for a 90px label is a
-          control pretending to be a section. It hugs its own text and sits where the next
-          row would be, which is where people already look for "one more". */}
-      {onNewRow ? (
-        <button
-          type="button"
-          className="db-new-row"
-          onClick={onNewRow}
-          onMouseDown={(event) => event.preventDefault()}
-          /* "New page", not "New row": a table's row is a calendar's date and a
-             board's card, and a row is a page in all three. The most specific of
-             those words is the one that keeps having to be renamed. */
-          title="Add a page to this database"
-        >
-          <Plus size={14} />
-          <span>New page</span>
-        </button>
-      ) : null}
       {hiddenProperties.length && onShowProperty ? (
         <HiddenProperties properties={hiddenProperties} onShow={onShowProperty} />
       ) : null}
       {/* A database with only its Name column is the state every new database starts
           in, and the bare `+` in the header was the only way out of it. Say so once,
-          where the person is already looking. */}
+          where the person is already looking. The second half of the sentence now
+          points at the trailing row, because there is no "New page" button any more. */}
       {!set.total && set.properties.length === 1 ? (
         <p className="db-hint">
           Add a property with <strong>Add property</strong> in the header — Status, Date, Select — then
-          use <strong>New page</strong> for the first one.
+          type a name in the <strong>New page</strong> row below.
         </p>
       ) : null}
       {!set.rows.length && !onNewRow ? (
