@@ -19,9 +19,9 @@ keeps it from rotting the way its predecessors did.
 
 - **Tests:** 397 passing, 0 failing, across 31 test files.
 - **Typecheck:** `tsc --noEmit` clean.
-- **Committed through:** `b1a7c78` — docs: snapshot at the commit above.
+- **Committed through:** `faa7a7e` — fix(check-docs): make the snapshot converge with the commit workflow.
 - **Schema:** migrations 1–7.
-- **Working tree:** dirty (uncommitted work in progress).
+- **Working tree:** clean.
 <!-- SNAPSHOT:END -->
 
 Run it yourself, it takes four seconds:
