@@ -303,7 +303,17 @@ const git = (args) => {
   return r.status === 0 ? (r.stdout ?? "").trim() : null;
 };
 const head = git(["rev-parse", "--short", "HEAD"]);
-const treeDirty = head === null ? null : (git(["status", "--porcelain"]) ?? "") !== "";
+
+// Dirtiness ignores docs/STATE.md itself. Without that, the snapshot can never describe a
+// clean tree: `--fix` writes the file, which makes the tree dirty, so the value it just wrote
+// is already false and every docs change needs a second "snapshot" commit. A file describing
+// its own uncommitted state is not uncommitted work.
+const dirtyLines = (git(["status", "--porcelain"]) ?? "")
+  .split("\n")
+  .map((l) => l.trim())
+  .filter(Boolean)
+  .filter((l) => !/(^|\/)docs\/STATE\.md$/.test(l.replace(/^.. /, "")));
+const treeDirty = head === null ? null : dirtyLines.length > 0;
 
 if (head && block) {
   const docHead = (block.body.match(/Committed through:\*\* `([0-9a-f]+)`/) ?? [])[1] ?? null;
@@ -326,10 +336,15 @@ if (head && block) {
   const docTree = /Working tree:\*\* (clean|dirty)/.exec(block.body)?.[1] ?? null;
   if (docTree === null) {
     fail("docs/STATE.md does not state whether the working tree is clean.");
-  } else if ((docTree === "clean") === treeDirty) {
+  } else if (docTree === "clean" && treeDirty) {
+    // Asymmetric on purpose, for the same reason the sha check is. "clean" is a claim about
+    // the tree *now*, and a dirty tree falsifies it. "dirty" is a claim about the moment it
+    // was written; committing that work afterwards does not make the sentence a lie, it makes
+    // it history. Failing in that direction is what forced a second "snapshot" commit after
+    // every change — a rule that punishes the correct workflow gets bypassed, not obeyed.
     fail(
-      `docs/STATE.md says the working tree is ${docTree}; it is ${treeDirty ? "dirty" : "clean"}. ` +
-        `Run: node scripts/check-docs.mjs --fix`
+      `docs/STATE.md says the working tree is clean, but ${dirtyLines.length} file(s) are ` +
+        `uncommitted: ${dirtyLines.slice(0, 3).join(", ")}. Run: node scripts/check-docs.mjs --fix`
     );
   }
 }

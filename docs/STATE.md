@@ -19,9 +19,9 @@ keeps it from rotting the way its predecessors did.
 
 - **Tests:** 397 passing, 0 failing, across 31 test files.
 - **Typecheck:** `tsc --noEmit` clean.
-- **Committed through:** `28acaba` — docs: add the contracts the second audit found missing, and fix its five errors.
+- **Committed through:** `b1a7c78` — docs: snapshot at the commit above.
 - **Schema:** migrations 1–7.
-- **Working tree:** clean.
+- **Working tree:** dirty (uncommitted work in progress).
 <!-- SNAPSHOT:END -->
 
 Run it yourself, it takes four seconds:
