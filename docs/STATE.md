@@ -16,9 +16,9 @@ the way its predecessors did.
 
 - **Tests:** 397 passing, 0 failing, across 31 test files.
 - **Typecheck:** `tsc --noEmit` clean.
-- **Committed through:** `cb3578f` — docs: make the context layer small, single-sourced, and machine-checked.
+- **Committed through:** `376cd87` — fix: make the context layer verifiable, and unblock the repo root.
 - **Schema:** migrations 1–7.
-- **Working tree:** dirty (uncommitted work in progress).
+- **Working tree:** clean.
 <!-- SNAPSHOT:END -->
 
 Run it yourself, it takes four seconds:
