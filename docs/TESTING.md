@@ -134,9 +134,14 @@ A probe that clicks `New page`, types a title and presses Enter now fails loudly
 instance instead of quietly leaving a page behind. That is the intended outcome.
 
 ```powershell
-node scripts/verify-db-gutter.mjs 1400 900            # new, tracked-style probe
-node scripts/scratch/cdp-db-gutter.mjs 1400 900    # the historical one
+node scripts/verify-db-gutter.mjs 1400 900
 ```
+
+Do not run the old `scripts/scratch/cdp-db-gutter.mjs` to compare. It removes its Chrome profile
+only on the happy path — a `setTimeout` before `process.exit`, with no `finally` and no signal
+handler — so a crash or a Ctrl+C leaves 200-odd files behind, which is how 292 probes became
+14.6 GB. 41 of the scratch probes still spawn their own Chrome this way. They are evidence of
+past measurements, not tools: read them, do not run them.
 
 ### Proving a write without writing one
 
