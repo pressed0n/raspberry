@@ -1,3 +1,9 @@
+> **ARCHIVED — binding on constraints, superseded on roadmap.** Superseded by
+> [`docs/STATE.md`](../STATE.md). Still binding: no `eval`, rows are pages,
+> revision + idempotency. Superseded: the roadmap, and the proposed stack this document
+> argues for that the app never adopted. Its hosting sections must not be revived
+> without a new owner decision.
+
 # Raspberry: research and implementation plan
 
 Research date: 25 October 2026. Status: implementation started. A local page-editor foundation prototype now exists; see README.md for verified capabilities and limitations.

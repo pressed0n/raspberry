@@ -150,15 +150,27 @@ Tests cover stale/concurrent edits, exact retries, cross-workspace access, viewe
 
 ## Next milestones
 
-Raspberry is deliberately not deployed anywhere, and no milestone below is scheduled. The maintained, ordered list lives in [BACKLOG.md](BACKLOG.md).
+Raspberry is deliberately not deployed anywhere, and no milestone is scheduled. The one
+maintained, ordered list of what is done, what is next and what is parked lives in
+[docs/STATE.md](docs/STATE.md) — it is machine-checked against the test suite, so unlike
+its predecessors it cannot quietly go stale.
 
-1. Add invitation and account management, plus a UI that can actually reach the session revocation that already exists in the store.
-2. Run the PostgreSQL adapter under the test suite, and prepare a reproducible deployment whenever hosting is chosen again.
-3. Add remote MCP with OAuth, explicit grants, audit records, and checks in all four target AI interfaces.
-4. Add typed databases and saved table/board/calendar views.
-5. Harden what a self-hosted sign-in needs before any public reachability: mail deliverability, TLS, encrypted off-device backups, and verified reboot recovery.
+In outline, all of it parked: invitations and account management; the PostgreSQL adapter
+under test; remote MCP with OAuth; saved views for typed databases; and the hardening a
+self-hosted sign-in needs before any public reachability (mail deliverability, TLS,
+encrypted off-device backups, verified reboot recovery).
 
-See [the research plan](RASPBERRY_PLAN.md) and [security notes](SECURITY.md).
+## Documentation
+
+| Document | What it answers |
+|---|---|
+| [docs/STATE.md](docs/STATE.md) | What is done, what is next, what is parked, what is broken. **The single source of truth.** |
+| [docs/MAP.md](docs/MAP.md) | Where everything lives, and which existing control to reuse. |
+| [docs/DECISIONS.md](docs/DECISIONS.md) | Why the code is like this — the constraints that cost bugs. |
+| [docs/TESTING.md](docs/TESTING.md) | How to verify a change without destroying the owner's data. |
+| [AGENTS.md](AGENTS.md) | The two hard rules, for an agent arriving cold. |
+| [SECURITY.md](SECURITY.md) | Security posture and reporting. |
+| [docs/ARCHIVE/](docs/ARCHIVE/) | Preserved history: the old backlog, the database plan v2, and [the research plan](docs/ARCHIVE/RASPBERRY_PLAN.md). Not a to-do list. |
 
 ## License
 

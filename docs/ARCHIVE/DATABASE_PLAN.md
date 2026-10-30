@@ -1,3 +1,7 @@
+> **ARCHIVED — history, not guidance.** Superseded by [`docs/STATE.md`](../STATE.md).
+> B38–B40 shipped against this plan; B41–B45 have not. Its § 7 risks section correctly
+> predicted the two live defects now recorded in `STATE.md`.
+
 # Database — implementation plan (v2)
 
 > **Source of truth for the wishlist:** the page **"Database Feature Wishlist"**

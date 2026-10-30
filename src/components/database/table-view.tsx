@@ -156,9 +156,11 @@ export function TableView({
 
   const widthFor = (propertyId: string): number => drifting[propertyId] ?? widthOf(view.config.widths, propertyId);
 
-  /* A view holds a list of sorts, but the menu offers one. Reading only the first is
-     honest about what this renderer supports; multi-sort becomes a list here when a
-     view asks for it, not a lie now. */
+  /* A view config holds a list of sorts, and this renderer honours the whole list — it
+     asks "is *this* property sorted, and which way", which is also the right question when
+     the list has one entry. The limit is on the write side, not here: the header menu
+     replaces the list with a single sort (`patchViewConfig({ sorts: [ … ] })` in
+     database-block.tsx), so no view can ever hold more than one. */
   const sortOf = (propertyId: string): SortDirection | null =>
     view.config.sorts.find((entry) => entry.propertyId === propertyId)?.direction ?? null;
 

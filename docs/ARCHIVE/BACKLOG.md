@@ -1,4 +1,8 @@
-﻿# Raspberry — delivered work, active to-do, and parked backlog
+﻿> **ARCHIVED — history, not guidance.** Superseded by [`docs/STATE.md`](../STATE.md).
+> Kept unedited for the narrative of each item. Note: its "Active to-do" section was
+> 11 of 14 headings describing already-shipped work, which is why it was retired.
+
+# Raspberry — delivered work, active to-do, and parked backlog
 
 Verified **28 October 2026** at commit `4f9136e` plus the P0 changes below.
 
