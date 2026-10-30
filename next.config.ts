@@ -21,6 +21,10 @@ const csp = [
   "object-src 'none'",
   "base-uri 'self'",
   "form-action 'self'",
+  // Video blocks embed provider players (B26). Only these hosts: an iframe of an
+  // arbitrary page, framed in our chrome under our URL, is a phishing surface.
+  // youtube-nocookie keeps the player from setting tracking cookies before play.
+  "frame-src https://www.youtube-nocookie.com https://player.vimeo.com",
   "frame-ancestors 'none'",
   ...(hosted ? ["upgrade-insecure-requests"] : []),
 ].join("; ");

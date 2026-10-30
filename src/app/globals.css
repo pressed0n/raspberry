@@ -1,17 +1,730 @@
-:root{--paper:#fff;--canvas:#fff;--sidebar:#f7f7f4;--ink:#30332e;--muted:#93968c;--soft:#72766d;--line:#eeefea;--berry:#a94762;--berry-light:#f8eff2;--green:#6e836c;--font:"Inter",-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif}
-*{box-sizing:border-box}html,body{margin:0;height:100%;font-family:var(--font);color:var(--ink);background:var(--paper);-webkit-font-smoothing:antialiased}button,input,textarea{font:inherit}button{cursor:pointer;color:inherit;border:0;background:none}button:disabled{cursor:wait;opacity:.45}button:focus-visible,a:focus-visible,input:focus-visible,textarea:focus-visible{outline:2px solid #b86c80;outline-offset:3px}button{touch-action:manipulation}::selection{background:#f0dce3}button svg{flex-shrink:0}p{line-height:1.7}kbd{font:11px var(--font);background:#eeefea;border:1px solid #e6e7e0;border-radius:4px;padding:3px 5px;color:#999b93;white-space:nowrap}.workspace{display:flex;height:100dvh;min-height:450px}.sidebar{width:254px;min-width:254px;background:var(--sidebar);border-right:1px solid #e9ebe4;display:flex;flex-direction:column;padding:30px 16px 0;overflow-y:auto}.workspace-brand{height:31px;display:flex;align-items:center;gap:9px;padding:0 13px}.workspace-brand strong{font-size:23px;letter-spacing:-1px;font-weight:650}.brand-mark{color:var(--berry);display:flex}.brand-period{color:var(--berry)}.workspace-name{display:flex;align-items:center;gap:10px;margin:34px 8px 25px;padding:0 6px}.workspace-avatar{width:31px;height:32px;border:1px solid #dedfd6;border-radius:7px;display:grid;place-items:center;font-size:13px;background:#edeee7;color:#6a705c;font-weight:600}.workspace-name strong{display:block;font-size:11.5px;font-weight:550}.workspace-name div>span{display:block;color:#9a9d91;font-size:10px;margin-top:5px}.primary-nav{display:flex;flex-direction:column;gap:4px;padding:0 3px}.primary-nav button{height:35px;display:flex;align-items:center;gap:10px;padding:0 9px;border-radius:6px;text-align:left;font-size:11.5px;color:#777d71}.primary-nav button:hover,.utility-link:hover,.favorite-link:hover,.add-page:hover{background:#edeee8}.primary-nav button>span{flex:1}.primary-nav kbd{font-size:9px;padding:2px 4px;color:#a2a69a}.nav-section{margin-top:31px}.section-heading{font-size:9px;letter-spacing:1.1px;font-weight:600;text-transform:uppercase;color:#9b9e92;display:flex;align-items:center;justify-content:space-between;padding:0 13px;margin-bottom:11px}.section-heading>svg{margin-right:4px;color:#a4a895}.favorite-link{display:flex;width:100%;align-items:center;gap:10px;padding:9px 12px;border-radius:5px;color:#7b8073;font-size:11px;text-align:left}.favorite-link svg{color:#8c947d}.favorite-link span,.page-link span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.page-section{margin-top:28px}.tiny-button{display:flex;padding:0;color:#999d8e}.page-row{display:flex;align-items:center;min-height:35px;border-radius:5px;gap:3px;margin:2px 0}.page-row:hover{background:#eeefe9}.page-row.active{background:#eceee5;color:#5d6852}.page-link{display:flex;align-items:center;gap:9px;text-align:left;font-size:11px;flex:1;min-width:0;padding:9px 0}.page-link svg{color:#879078}.tree-toggle{padding:2px 0;color:#a7ad9f;display:flex}.tree-spacer{width:3px;flex-shrink:0}.row-add{display:flex;padding:6px;opacity:0;color:#949b87}.page-row:hover .row-add,.row-add:focus-visible{opacity:1}.add-page{display:flex;align-items:center;gap:9px;font-size:11px;color:#9b9f92;margin-top:8px;padding:9px 14px;width:100%;border-radius:5px}.sidebar-bottom{margin-top:auto;padding-top:50px}.workspace-note{display:flex;gap:10px;border:1px solid #e7e9df;border-radius:8px;padding:13px 10px;margin:0 5px 22px;background:#f3f4ed}.workspace-note p{font-size:9.5px;color:#8e9582;margin:0;line-height:1.7}.workspace-note p strong{font-weight:400;color:#a0a693}.note-sprout{color:#8e9b7e;margin-top:3px}.utility-link{display:flex;align-items:center;gap:10px;font-size:10.5px;padding:9px 14px;width:100%;text-align:left;color:#8b9182;border-radius:5px}.trailing-icon{margin-left:auto;color:#a5aa9d}.sidebar-footer{display:flex;align-items:center;gap:6px;font-size:8px;color:#a5aa9b;border-top:1px solid #e7e9df;margin:20px 1px 0;padding:16px 10px}.sidebar-footer>span:last-child{margin-left:auto;font-size:8px}.local-dot{width:4px;height:4px;border-radius:50%;background:#9aaa8e}.main-pane{flex:1;min-width:0;display:flex;flex-direction:column;position:relative}.topbar{height:67px;min-height:67px;border-bottom:1px solid #f0f1ed;display:flex;align-items:center;justify-content:space-between;padding:0 36px;gap:15px;font-size:10.5px;color:#8f9588}.breadcrumbs{display:flex;align-items:center;gap:13px;min-width:0}.breadcrumbs>svg{color:#b5bbaa}.breadcrumb-page{display:flex;align-items:center;gap:9px;min-width:0;color:#737d69}.breadcrumb-page>span{max-width:230px;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.parent-crumb{max-width:90px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.page-tools{display:flex;align-items:center;gap:11px;flex-shrink:0}.save-state{display:flex;align-items:center;gap:6px;font-size:9px;color:#9ca692;white-space:nowrap}.save-state.error,.save-state.conflict{color:#ac6b5a}.save-state.saving{color:var(--berry)}.toolbar-divider{width:1px;height:14px;background:#ebeee5;margin:0 3px}.icon-button{display:inline-flex;align-items:center;justify-content:center;padding:5px;border-radius:5px;color:#929a88}.icon-button:hover{background:#f3f4ef;color:#616e58}.favorite-toggle.is-favorite{color:#b1a17d}.menu-anchor{position:relative}.document-scroll{overflow-y:auto;flex:1;display:flex;flex-direction:column}.document{max-width:810px;width:100%;padding:68px 52px 0;margin:0 auto;flex:1}.document-eyebrow{color:#a1a893;letter-spacing:1.75px;font-size:8px;font-weight:550;display:flex;align-items:center;gap:9px;margin-bottom:29px}.eyebrow-line{width:15px;height:1px;background:#a8b197}.page-icon-wrap{position:relative;width:fit-content;margin-bottom:20px}.document-icon{height:57px;width:57px;border-radius:12px;display:grid;place-items:center;background:#f8f0f2;color:#ac506b}.document-icon:hover{background:#f2e3e9}.icon-notebook{background:#edf2e9;color:#7d9465}.icon-compass{background:#edf1f4;color:#7a93a3}.icon-leaf{background:#ecf2e9;color:#7a926d}.icon-lightbulb{background:#f9f3e5;color:#b4a05c}.icon-file{background:#f0f1eb;color:#8b947a}.page-title{width:100%;border:0;outline:0!important;resize:none;font-family:var(--font);font-weight:620;font-size:41px;line-height:1.25;letter-spacing:-1.55px;color:#30372e;background:none;padding:0;margin:0;overflow:hidden;display:block;min-height:52px}.page-title::placeholder{color:#c5c9bd}.document-meta{display:flex;align-items:center;gap:8px;color:#9da591;font-size:9px;margin-top:20px}.author-avatar{width:19px;height:19px;border-radius:50%;display:grid;place-items:center;font-size:8px;background:#eaf0e4;color:#879b75}.meta-dot{color:#c0c7b6;padding:0 2px}.document-rule{height:1px;background:#ebeee5;margin:26px 0 28px}.editor-area{margin-left:-54px;margin-right:-54px;min-height:270px}.bn-container{--bn-font-family:var(--font);--bn-colors-editor-text:#5c6555;--bn-colors-editor-background:transparent;--bn-colors-hovered-background:#f3f5ee;--bn-colors-menu-text:#5b6652;--bn-colors-highlights-gray-background:#f4f5ef}.bn-editor{font-size:13px;line-height:1.85;padding-inline:54px;min-height:270px}.bn-editor .bn-block-content{padding:3px 0}.bn-editor .bn-block-content[data-content-type=heading]{color:#3e4837;font-weight:580;letter-spacing:-.3px;margin-top:24px;margin-bottom:7px}.bn-editor .bn-block-content[data-content-type=heading][data-level="2"]{font-size:18px}.bn-editor .bn-block-content[data-content-type=heading][data-level="1"]{font-size:23px}.bn-editor .bn-block-content[data-content-type=heading][data-level="3"]{font-size:15px}.bn-editor .bn-block-content[data-content-type=checkListItem]{color:#78836b;font-size:12px}.bn-editor .bn-block-content[data-content-type=quote]{border-left-color:#bfcbb3;font-size:12px;color:#8a967d;margin-block:13px;border-radius:0 4px 4px 0;padding:13px 17px}.bn-editor a{color:var(--berry)}.bn-editor .bn-block-content[data-content-type=codeBlock]{font-size:12px}.bn-suggestion-menu,.bn-toolbar{font-family:var(--font)}.document-bottom{display:flex;justify-content:space-between;align-items:center;border-top:1px solid #eff1ea;margin-top:41px;padding:17px 0;font-size:9px;color:#b0b8a5}.document-bottom>span{display:flex;align-items:center;gap:6px}.bottom-dot{width:3px;height:3px;border-radius:50%;background:#afbea0}.document-bottom button{display:flex;align-items:center;gap:6px;font-size:9px;color:#99a589;padding:4px}.document-bottom button:hover{color:var(--berry)}.main-footer{display:flex;align-items:center;justify-content:center;gap:16px;color:#b0b8a6;font-size:8.5px;padding:34px 30px 25px}.footer-brand{font-size:10px;display:flex;align-items:center;gap:5px;font-weight:500;letter-spacing:-.25px;color:#a1ad94}.footer-brand svg{width:10px;height:13px;opacity:.5}.main-footer>span+span{border-left:1px solid #e6ebde;padding-left:15px;font-style:italic}.dropdown{position:absolute;z-index:30;background:#fff;border:1px solid #e7eae1;border-radius:9px;box-shadow:0 10px 40px #28351b12;padding:6px}.page-dropdown{width:213px;right:0;top:34px}.dropdown-label{font-size:8px;letter-spacing:1px;color:#a0a893;padding:8px 9px}.page-dropdown button{display:flex;align-items:center;gap:10px;width:100%;padding:10px 9px;border-radius:4px;font-size:11px;text-align:left;color:#737e67}.page-dropdown button:hover{background:#f4f6ef}.dropdown-rule{height:1px;background:#eef0e8;margin:5px 3px}.page-dropdown .danger{color:#b06b6b}.icon-dropdown{top:64px;left:0;display:grid;grid-template-columns:repeat(3,40px);gap:3px}.icon-dropdown button{padding:8px;border-radius:5px;display:flex;justify-content:center;color:#9a7c85}.icon-dropdown button:hover,.icon-dropdown .selected{background:var(--berry-light)}.modal-overlay{position:fixed;inset:0;background:#222b1e33;backdrop-filter:blur(4px);z-index:70;display:flex;align-items:flex-start;justify-content:center;padding:14vh 20px 30px;overflow-y:auto}.modal{width:490px;max-width:100%;background:#fff;border:1px solid #e7eae1;border-radius:13px;box-shadow:0 25px 100px #1f301a22;outline:0}.modal-wide{width:610px}.modal-header{display:flex;align-items:center;justify-content:space-between;padding:22px 23px 13px}.modal-header h2{font-size:17px;font-weight:550;letter-spacing:-.5px;margin:0;color:#525e47}.search-field{margin:9px 20px 15px;display:flex;align-items:center;gap:11px;border-bottom:1px solid #e9ece3;padding:10px 4px 16px;color:#a1ac94}.search-field input{border:0;outline:0!important;flex:1;min-width:0;font-size:13px;color:#5c6951}.search-field input::placeholder{color:#a6af9c}.search-results{max-height:360px;overflow-y:auto;padding:0 12px 12px;min-height:150px}.search-results>button{display:flex;align-items:center;gap:13px;text-align:left;width:100%;padding:13px 14px;border-radius:6px;color:#8f9d80}.search-results>button:hover{background:#f4f6ef}.search-results>button>div{flex:1;min-width:0}.search-results strong{display:block;font-size:12px;font-weight:500;color:#647257;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.search-results span{display:block;font-size:9px;margin-top:5px;color:#a1ad95}.dialog-footer{border-top:1px solid #eff1e9;padding:14px 25px;font-size:9px;color:#aab59e}.dialog-empty{display:flex;align-items:center;justify-content:center;flex-direction:column;gap:8px;padding:38px 10px;color:#b0bba3;font-size:11px}.dialog-empty p{margin:0}.dialog-description{font-size:11px;color:#929e85;padding:0 24px;margin:4px 0 22px;line-height:1.75}.trash-list,.history-list{padding:0 18px 20px;max-height:400px;overflow-y:auto}.trash-list>div:not(.dialog-empty),.history-list>div{display:flex;align-items:center;gap:12px;padding:11px 5px;border-bottom:1px solid #f1f3ec;font-size:11px;color:#8b9b7b}.trash-list>div>span{flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.subtle-button{display:inline-flex;align-items:center;gap:5px;padding:6px 8px;border:1px solid #e8ecdf;border-radius:5px;font-size:10px;white-space:nowrap;color:#869875;background:#fafbf7}.subtle-button:hover{background:#eef3e6}.history-list>div>div{flex:1;min-width:0}.history-list strong{display:block;font-size:11px;font-weight:500;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.history-list span:not(.current-badge){display:block;font-size:8px;margin-top:5px;color:#a7b498}.current-badge{font-size:9px;color:#9caa8d;border:1px solid #e9efdf;border-radius:4px;padding:4px 6px}.shortcuts{padding:10px 25px 20px}.shortcuts>div{display:flex;align-items:center;justify-content:space-between;padding:11px 0;border-bottom:1px solid #eef2e8;font-size:12px;color:#879779}.shortcuts kbd{font-size:10px}.help-note{margin:0 23px 23px;padding:13px;background:#f6f9f0;border-radius:7px;display:flex;gap:12px;color:#a4b393}.help-note p{font-size:11px;margin:0;color:#8d9e7c}.help-note svg{flex-shrink:0}.draft-alert{padding:14px 16px;background:#fcf4ee;border:1px solid #f0ded0;border-radius:7px;margin-bottom:20px}.draft-alert p{font-size:11px;color:#a8795e;margin:0 0 10px}.draft-alert>div{display:flex;gap:8px}.global-error{position:absolute;z-index:65;top:77px;left:20px;right:20px;background:#fcf0ed;border:1px solid #efd9d1;border-radius:7px;font-size:12px;padding:13px 15px;display:flex;align-items:center;gap:12px;color:#a76856;box-shadow:0 6px 20px #542a1810}.global-error>span{flex:1}.global-error button{display:flex}.editor-loading{display:flex;align-items:center;gap:9px;font-size:12px;color:#a9b49d;padding:20px 54px}.workspace-empty{flex:1;display:flex;flex-direction:column;align-items:center;justify-content:center;color:#9cae8c;padding:40px;text-align:center}.workspace-empty h1{font-size:30px;letter-spacing:-1px;color:#5f7550;margin-bottom:0}.workspace-empty p{font-size:13px}.empty-mark{color:var(--berry)}.primary-button{display:flex;align-items:center;justify-content:center;gap:8px;font-size:12px;padding:10px 15px;background:var(--berry);color:#fff;border-radius:6px;margin-top:12px}.primary-button:hover{background:#943a52}.muted{color:var(--muted)}.mobile-close,.mobile-menu,.sidebar-scrim{display:none}.spin{animation:spin 1s linear infinite}@keyframes spin{to{transform:rotate(360deg)}}
-@media(min-width:1500px){.document{max-width:880px;padding-top:85px}.sidebar{width:270px;min-width:270px}.page-title{font-size:44px}.bn-editor{font-size:14px}}
-@media(max-width:1100px){.sidebar{width:225px;min-width:225px;padding-inline:11px}.document{padding:55px 45px 0;max-width:760px}.topbar{padding-inline:22px}.breadcrumb-workspace,.parent-crumb{display:none}.page-title{font-size:36px}.save-state{font-size:8px}.breadcrumb-page>span{max-width:200px}}
-@media(max-width:760px){.sidebar{position:fixed;z-index:60;left:-280px;top:0;bottom:0;width:254px;min-width:254px;transition:left .2s}.sidebar.is-open{left:0}.sidebar-scrim{display:block;position:fixed;inset:0;background:#24331c44;backdrop-filter:blur(2px);z-index:55}.mobile-close{display:flex;margin-left:auto}.mobile-menu{display:flex;color:#899c78;margin-right:5px}.topbar{height:59px;min-height:59px;padding:0 15px;gap:8px}.breadcrumbs{gap:6px;min-width:0}.breadcrumb-page>span{max-width:160px;font-size:10px}.page-tools{gap:4px}.save-state>span{display:none}.toolbar-divider{margin-inline:4px}.document{padding:38px 28px 0;max-width:690px}.page-title{font-size:32px;letter-spacing:-1.1px;min-height:40px}.document-eyebrow{font-size:7px;margin-bottom:23px}.document-icon{height:50px;width:50px;border-radius:10px}.document-meta{font-size:8px;margin-top:17px}.document-rule{margin:22px 0 24px}.editor-area{margin-left:-20px;margin-right:-20px}.bn-editor{padding-inline:20px;font-size:13px}.bn-editor .bn-block-content[data-content-type=heading][data-level="2"]{font-size:17px}.document-bottom{margin-top:35px;font-size:8px;gap:12px}.document-bottom button{font-size:8px}.main-footer{padding-top:30px}.modal-overlay{padding-top:10vh}.modal-header{padding:20px}.modal-header h2{font-size:16px}.search-field input{font-size:12px}.page-dropdown{right:-3px}.row-add{opacity:.65}.page-link{min-height:38px}.primary-nav button{min-height:39px}.utility-link{min-height:36px}}
-@media(max-width:760px){.sidebar{visibility:hidden}.sidebar.is-open{visibility:visible}.page-title{min-height:42px}}
-@media(prefers-reduced-motion:reduce){*{animation-duration:.01ms!important;transition-duration:.01ms!important}}
+/* Raspberry — editor surface and block chrome (B18)
+   ---------------------------------------------------------------------------
+   `theme.css` holds the palette, `shell.css` the app frame, `document.css` the
+   static document typography. This file exists because the editor is the one
+   surface that is NOT our markup: BlockNote renders its own DOM and reads its
+   own `--bn-*` variables, so it has to be retyped onto our tokens by hand.
 
-/* Container blocks share the parent editor and keep nested slash menus. */
-.raspberry-callout{--callout-bg:#fff9e8;--callout-border:#eee0af;display:flex;align-items:flex-start;gap:12px;background:var(--callout-bg);border:1px solid var(--callout-border);border-radius:8px;padding:14px;margin:10px 0;min-width:0}
+   The variables below are deliberately scoped to `:root[data-theme]` rather
+   than applied through BlockNote's `theme` prop. The prop writes inline styles
+   on the editor root, which would beat any stylesheet and force a JS round-trip
+   on every toggle. Scoped CSS variables react to `data-theme` on their own, so
+   switching themes is one attribute write and no re-render.
+   --------------------------------------------------------------------------- */
 
-.callout-controls{position:relative;z-index:21}
-.callout-controls{width:34px;flex-shrink:0;display:flex;align-items:center;flex-direction:column;gap:7px;padding-top:2px}.callout-emoji{font-family:"Segoe UI Emoji","Apple Color Emoji",sans-serif;font-size:24px;line-height:1.3;padding:0 2px;border-radius:4px}.callout-emoji:hover{background:#ffffff90}.callout-body{flex:1;min-width:0}.callout-body>.bn-block-group{padding:0!important;margin:0!important}.callout-body .bn-block-content[data-content-type=heading]{margin-top:8px}.raspberry-callout .bn-block-group{border:0}.raspberry-callout .bn-block-content{padding-inline:0!important}
-.raspberry-columns-frame{margin:12px 0;min-width:0}.raspberry-columns{display:grid;gap:18px;align-items:start;min-width:0}.raspberry-column{min-width:0;border:1px dashed transparent;border-radius:5px;padding:6px 2px;min-height:45px}.raspberry-columns-frame:hover .raspberry-column,.raspberry-column:focus-within{border-color:#e5e9df}.raspberry-column .bn-block-group{padding-left:0!important;margin-left:0!important;border:0}.raspberry-column .bn-block-content[data-content-type=heading]{margin-top:10px}.raspberry-column .bn-block-content{overflow-wrap:anywhere}.raspberry-column .bn-block-content[data-content-type=paragraph]{min-width:0}.columns-exit{display:flex;justify-content:flex-end;margin-top:4px}.columns-exit button{display:flex;align-items:center;gap:5px;padding:4px;font-size:9px;color:#9aa58f;opacity:0}.raspberry-columns-frame:hover .columns-exit button,.columns-exit button:focus-visible{opacity:1}
-.page-reference{width:100%;margin:5px 0}.page-reference>a{display:flex;align-items:center;gap:10px;padding:9px 11px;border-radius:5px;color:#67745e!important;text-decoration:none!important;font-size:13px;font-weight:500}.page-reference>a:hover{background:#f3f5ee}.page-reference>a>span{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.page-reference>a>svg:last-child{color:#acb39e}.page-reference.unavailable{opacity:.55}.page-reference small{font-size:9px;font-weight:400}.page-reference.unavailable a{cursor:default}
-.editor-dialog{border:1px solid #e5e8df;border-radius:13px;padding:0;width:460px;max-width:calc(100vw - 32px);max-height:min(80dvh,640px);color:var(--ink);background:#fff;box-shadow:0 20px 70px #26331b20}.editor-dialog::backdrop{background:#26331c40;backdrop-filter:blur(3px)}.editor-dialog .modal-header h2{font-size:17px}.editor-picker-search{display:flex;gap:9px;align-items:center;border:1px solid #e5eade;border-radius:7px;margin:5px 22px 17px;padding:10px 12px;color:#9aa68d}.editor-picker-search input{border:0;outline:0!important;min-width:0;flex:1;width:100%;font-size:13px;color:#64745a}.editor-picker-search input::placeholder{color:#a5b099}.page-picker-results{padding:0 14px 14px;max-height:330px;overflow-y:auto}.page-picker-results>button{display:flex;align-items:center;gap:11px;width:100%;text-align:left;padding:12px 11px;border-radius:6px;font-size:12px;color:#78896b}.page-picker-results>button:hover{background:#f3f7ed}.page-picker-results>button>span{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}.callout-emoji-grid{display:grid;grid-template-columns:repeat(8,1fr);gap:3px;padding:0 20px 20px;max-height:340px;overflow-y:auto}.callout-emoji-grid>button{font-family:"Segoe UI Emoji","Apple Color Emoji",sans-serif;font-size:25px;line-height:1.3;padding:7px 0;border-radius:5px}.callout-emoji-grid>button:hover,.callout-emoji-grid>button:focus-visible{background:#f5edf0}.callout-emoji-grid>.dialog-empty,.callout-emoji-grid>p{grid-column:1/-1}.editor-operation{display:flex;gap:7px;align-items:center;color:#9c6a7a;font-size:11px;padding:8px 54px}.bn-editor .bn-block-content[data-content-type=divider]{padding:14px 0}.bn-editor .bn-block-content[data-content-type=table]{overflow-x:auto}.bn-editor table{font-size:12px;max-width:100%}.bn-grid-suggestion-menu{max-width:calc(100vw - 32px)}
-@media(max-width:760px){.raspberry-columns{grid-template-columns:1fr!important;gap:9px}.raspberry-column{border-color:#e5e9df;padding:8px}.columns-exit button{opacity:1}.raspberry-callout{gap:8px;padding:11px}.callout-controls{width:29px}.callout-emoji{font-size:22px}.callout-emoji-grid{padding-inline:14px}.callout-emoji-grid>button{font-size:23px}.editor-operation{padding-inline:20px}}
+.bn-container,
+.bn-editor {
+  --bn-font-family: var(--font-ui);
+  --bn-border-radius: var(--radius-sm);
+}
+
+/* `@blocknote/react` ships its own defaults on `.bn-root` and a dark variant on
+   `.bn-container.dark`, so these have to out-specify two classes — hence the
+   `:root[data-theme] .bn-container` selector as well as the root one. Keeping the
+   root declaration too means portalled popovers inherit the same palette. */
+:root[data-theme="dark"],
+:root[data-theme="dark"] .bn-container,
+:root[data-theme="dark"] .bn-editor {
+  --bn-colors-editor-text: var(--text);
+  --bn-colors-editor-background: transparent;
+
+  --bn-colors-menu-text: var(--text);
+  --bn-colors-menu-background: var(--elevated);
+  --bn-colors-tooltip-text: var(--text);
+  --bn-colors-tooltip-background: var(--elevated);
+
+  --bn-colors-hovered-text: var(--text);
+  --bn-colors-hovered-background: var(--hover-strong);
+  --bn-colors-selected-text: var(--text);
+  --bn-colors-selected-background: var(--accent-soft);
+  --bn-colors-disabled-text: var(--text-3);
+  --bn-colors-disabled-background: transparent;
+
+  --bn-colors-border: var(--hairline-strong);
+  --bn-colors-shadow: var(--shadow);
+  --bn-colors-side-menu: var(--text-3);
+
+  /* Aliases, not literals (B30). BlockNote's own `.bn-container.dark` rules force
+     these to be declared this deep, and a declaration on the editor element beats
+     an inherited one from `:root` — so a literal here would silently hide any
+     custom palette the settings page wrote to the root. Reading a `--palette-*`
+     token instead (declared only on `:root`, in `theme.css`) keeps the value
+     inherited, and therefore overridable. */
+  --bn-colors-highlights-gray-background: var(--palette-gray-background);
+  --bn-colors-highlights-gray-text: var(--palette-gray-text);
+  --bn-colors-highlights-blue-background: var(--palette-blue-background);
+  --bn-colors-highlights-blue-text: var(--palette-blue-text);
+  --bn-colors-highlights-purple-background: var(--palette-purple-background);
+  --bn-colors-highlights-purple-text: var(--palette-purple-text);
+  --bn-colors-highlights-red-background: var(--palette-red-background);
+  --bn-colors-highlights-red-text: var(--palette-red-text);
+  --bn-colors-highlights-green-background: var(--palette-green-background);
+  --bn-colors-highlights-green-text: var(--palette-green-text);
+  --bn-colors-highlights-yellow-background: var(--palette-yellow-background);
+  --bn-colors-highlights-yellow-text: var(--palette-yellow-text);
+  --bn-colors-highlights-orange-background: var(--palette-orange-background);
+  --bn-colors-highlights-orange-text: var(--palette-orange-text);
+  /* `calloutColors` includes pink and brown, which BlockNote does not ship. */
+  --bn-colors-highlights-pink-background: var(--palette-pink-background);
+  --bn-colors-highlights-pink-text: var(--palette-pink-text);
+  --bn-colors-highlights-brown-background: var(--palette-brown-background);
+  --bn-colors-highlights-brown-text: var(--palette-brown-text);
+}
+
+:root[data-theme="light"],
+:root[data-theme="light"] .bn-container,
+:root[data-theme="light"] .bn-editor {
+  --bn-colors-editor-text: var(--text);
+  --bn-colors-editor-background: transparent;
+
+  --bn-colors-menu-text: var(--text);
+  --bn-colors-menu-background: var(--elevated);
+  --bn-colors-tooltip-text: var(--text);
+  --bn-colors-tooltip-background: var(--elevated);
+
+  --bn-colors-hovered-text: var(--text);
+  --bn-colors-hovered-background: var(--hover-strong);
+  --bn-colors-selected-text: var(--text);
+  --bn-colors-selected-background: var(--accent-soft);
+  --bn-colors-disabled-text: var(--text-3);
+  --bn-colors-disabled-background: transparent;
+
+  --bn-colors-border: var(--hairline-strong);
+  --bn-colors-shadow: var(--shadow);
+  --bn-colors-side-menu: var(--text-3);
+
+  /* Generated — see the dark block above. */
+  --bn-colors-highlights-gray-background: var(--palette-gray-background);
+  --bn-colors-highlights-gray-text: var(--palette-gray-text);
+  --bn-colors-highlights-blue-background: var(--palette-blue-background);
+  --bn-colors-highlights-blue-text: var(--palette-blue-text);
+  --bn-colors-highlights-purple-background: var(--palette-purple-background);
+  --bn-colors-highlights-purple-text: var(--palette-purple-text);
+  --bn-colors-highlights-red-background: var(--palette-red-background);
+  --bn-colors-highlights-red-text: var(--palette-red-text);
+  --bn-colors-highlights-green-background: var(--palette-green-background);
+  --bn-colors-highlights-green-text: var(--palette-green-text);
+  --bn-colors-highlights-yellow-background: var(--palette-yellow-background);
+  --bn-colors-highlights-yellow-text: var(--palette-yellow-text);
+  --bn-colors-highlights-orange-background: var(--palette-orange-background);
+  --bn-colors-highlights-orange-text: var(--palette-orange-text);
+  --bn-colors-highlights-pink-background: var(--palette-pink-background);
+  --bn-colors-highlights-pink-text: var(--palette-pink-text);
+  --bn-colors-highlights-brown-background: var(--palette-brown-background);
+  --bn-colors-highlights-brown-text: var(--palette-brown-text);
+}
+
+/* ---------- editor typography ---------- */
+
+.bn-editor {
+  font-family: var(--font-ui);
+  font-size: var(--fs-body);
+  line-height: 1.68;
+  /* The measure comes from `.doc`, so the editor adds no horizontal padding of
+     its own. The old build indented by 54px to compensate for a shell gutter
+     that no longer exists. */
+  padding-inline: 0;
+  min-height: 320px;
+  color: var(--text);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* The canvas is a document, not a control.
+   `shell.css`'s global `:focus-visible` ring is correct for buttons and the page
+   title, but a `contenteditable` matches `:focus-visible` on a *mouse* click as
+   well — the browser counts an editable region as keyboard-operable — so simply
+   clicking into the body painted a 2px accent rectangle around the whole
+   660×777 editor. The caret is the focus indicator here, and a better one: it
+   says where you are *inside* the document, which a perimeter cannot. */
+.bn-editor:focus,
+.bn-editor:focus-visible {
+  outline: none;
+}
+
+.bn-editor .bn-block-content {
+  padding: 2px 0;
+  caret-color: var(--accent);
+}
+
+/* The block content is a flex row; without this the caret sits at the very top
+   of a tall line box instead of on the baseline. */
+.bn-editor .bn-inline-content { min-width: 0; }
+
+/* Heading weight, size and leading belong to `editor-blocks.css`, where the
+   `--level`/`--level-line` pair is declared — one place, because BlockNote
+   renders the size onto both the block content and a real <h1>–<h6>. */
+.bn-editor [data-content-type="heading"] { color: var(--text); }
+
+.bn-editor [data-content-type="paragraph"],
+.bn-editor [data-content-type="bulletListItem"],
+.bn-editor [data-content-type="numberedListItem"],
+.bn-editor [data-content-type="checkListItem"] { color: var(--text); }
+
+.bn-editor [data-content-type="bulletListItem"]::marker,
+.bn-editor [data-content-type="numberedListItem"]::marker { color: var(--text-3); }
+
+/* The tick keeps its own token (B30). `accent-color` only paints the checked
+   state, so an accent-coloured tick would mean the one control that says "done"
+   shares a colour with the thing that says "selected". */
+.bn-editor [data-content-type="checkListItem"] input[type="checkbox"] {
+  accent-color: var(--checkbox);
+}
+
+/* Placeholder + empty-line hint */
+.bn-editor .bn-inline-content:has(> .ProseMirror-trailingBreak:only-child)::before,
+.bn-editor [data-placeholder]::before,
+.bn-editor .bn-block-content[data-is-empty-and-focused] .bn-inline-content::before {
+  color: var(--text-3);
+}
+
+/* Quote text takes the page ink, not the muted ink. Muting it meant the colour
+   picker's "auto" read as grey inside a quote and there was no way back to
+   white. Italic is no longer forced here either — it is a text style the
+   author toggles, so the toolbar and Ctrl+I both tell the truth. */
+.bn-editor blockquote {
+  border-inline-start: 2px solid var(--hairline-strong);
+  padding-inline-start: var(--s3);
+  color: var(--text);
+  margin: 0;
+}
+
+.bn-editor code {
+  font-family: var(--font-mono);
+  font-size: 0.9em;
+  background: var(--sunken);
+  border: 1px solid var(--hairline);
+  border-radius: 4px;
+  padding: 0.1em 0.34em;
+}
+
+.bn-editor pre {
+  background: var(--sunken);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  padding: var(--s3) var(--s4);
+  overflow-x: auto;
+}
+.bn-editor pre code { background: none; border: 0; padding: 0; }
+
+.bn-editor a { color: var(--accent); text-underline-offset: 2px; }
+
+.bn-editor hr {
+  border: 0;
+  border-top: 1px solid var(--hairline);
+  margin: 0;
+}
+
+/* BlockNote floats the block handle over the gutter, and keeps it alive while
+   the pointer travels towards it. A callout's emoji lives in that gutter, so the
+   handle covered it and could not be dismissed. The editor toggles this class
+   from a capture-phase pointer listener — faster than React's render — and the
+   handle reappears the moment the pointer is over a real block again.
+   The absolutely-positioned wrapper is the real hit target: hiding only
+   `.bn-side-menu` left a 39×30 invisible box swallowing clicks on the emoji. */
+.bn-container.menu-suppressed div:has(> .bn-side-menu) {
+  visibility: hidden;
+  pointer-events: none;
+}
+
+/* ---------- block rhythm ---------- */
+
+/* One gap between objects, and it only ever points downward-start so it cannot
+   collapse against a sibling's and produce uneven spacing. It lives on the
+   wrapper rather than on `.bn-block-content` because a callout or a column set
+   renders as a `display: contents` node-view sibling — not a `.bn-block-outer` —
+   and used to end up flush against its neighbours.
+   List items are deliberately absent from the nested case: consecutive bullets
+   are one object, not several. */
+.bn-editor > .bn-block-group > .bn-block-outer { margin-block-start: var(--block-gap); }
+.bn-editor > .bn-block-group > *:first-child { margin-block-start: 0; }
+.bn-editor .raspberry-callout,
+.bn-editor .raspberry-columns-frame { margin-block: var(--block-gap); }
+/* The objects *inside* a callout or a column are separate objects too. */
+.bn-editor .callout-body > div > .bn-block-outer,
+.bn-editor .raspberry-column > div > .bn-block-outer { margin-block-start: var(--block-gap); }
+.bn-editor .callout-body > div > .bn-block-outer:first-child,
+.bn-editor .raspberry-column > div > .bn-block-outer:first-child { margin-block-start: 0; }
+.bn-editor .bn-block-content[data-content-type="divider"] { margin-block: 16px; }
+
+/* ---------- placeholder ---------- */
+
+/* BlockNote paints placeholders as `::after` on the block content, in body type.
+   An empty heading therefore showed "Heading" in italic 15px type sitting
+   outside the heading's own box. Make the ghost text match the block it belongs
+   to, and pin it to the first line, which is where the caret is. */
+.bn-editor .bn-block-content:has(> .bn-inline-content > .ProseMirror-trailingBreak:only-child) {
+  position: relative;
+}
+.bn-editor .bn-block-content:has(> .bn-inline-content > .ProseMirror-trailingBreak:only-child)::after {
+  position: absolute;
+  inset-block-start: 3px;
+  /* List items put a marker — a bullet, a number, a checkbox — in a 24px column
+     before the text. A placeholder pinned to `inset-inline: 0` printed the word
+     "List" on top of the checkbox. `--marker-gutter` is set per block type
+     below, so the ghost text starts where the real text would. */
+  inset-inline-start: var(--marker-gutter, 0);
+  inset-inline-end: 0;
+  margin: 0;
+  font: inherit;
+  font-style: normal;
+  line-height: inherit;
+  letter-spacing: inherit;
+  color: var(--text-3);
+  pointer-events: none;
+}
+.bn-editor .bn-block-content[data-content-type="bulletListItem"],
+.bn-editor .bn-block-content[data-content-type="numberedListItem"],
+.bn-editor .bn-block-content[data-content-type="checkListItem"] { --marker-gutter: 24px; }
+
+/* ---------- links ---------- */
+
+/* A link inherits the colour of its text. Forcing the accent meant colouring a
+   link did nothing; the accent now only marks the underline. */
+.bn-editor a {
+  color: inherit;
+  text-decoration: underline;
+  text-decoration-color: var(--accent-line);
+  text-decoration-thickness: 1px;
+  text-underline-offset: 2px;
+  transition: text-decoration-color var(--t-hover) linear;
+}
+.bn-editor a:hover { text-decoration-color: var(--accent); }
+/* A decoration is painted in the colour of the element that declares it, and it
+   is the <a> that declares this one — so a link whose text was coloured kept its
+   pink underline. Where a link sits inside a coloured span (or wraps one), hand
+   the underline to that colour. */
+.bn-editor [data-style-type="textColor"] a,
+.bn-editor a:has([data-style-type="textColor"]) {
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+.bn-editor [data-style-type="textColor"] a:hover,
+.bn-editor a:has([data-style-type="textColor"]):hover { text-decoration-color: currentColor; }
+
+/* ---------- inline decoration colour ---------- */
+
+/* Text colour is written on an inner span while the decoration sits on an outer
+   <s>/<u>, and a decoration is painted in the colour of the element that
+   declares it. So coloured strikethroughs and underlines drew in the default
+   ink. Move the decoration onto the coloured span when one is present. */
+.bn-editor :is(s, del, u):has(> [data-style-type="textColor"]) { text-decoration-line: none; }
+.bn-editor :is(s, del) > [data-style-type="textColor"] { text-decoration-line: line-through; }
+.bn-editor u > [data-style-type="textColor"] { text-decoration-line: underline; text-decoration-thickness: 1px; text-underline-offset: 2px; }
+
+.bn-editor table {
+  border-collapse: collapse;
+  width: 100%;
+  font-size: var(--fs-body);
+}
+.bn-editor th,
+.bn-editor td {
+  border: 1px solid var(--hairline-strong);
+  padding: 6px 10px;
+  text-align: start;
+}
+.bn-editor th { background: var(--sunken); font-weight: 600; }
+
+/* ---------- slash menu, emoji picker, floating toolbar ---------- */
+
+.bn-container .mantine-Menu-dropdown,
+.bn-suggestion-menu,
+.bn-mantine .mantine-Popover-dropdown {
+  border: 1px solid var(--hairline-strong) !important;
+  border-radius: var(--radius) !important;
+  box-shadow: var(--shadow) !important;
+  background: var(--elevated) !important;
+}
+
+.bn-mantine .mantine-Button-root {
+  font-family: var(--font-ui);
+  font-size: var(--fs-ui);
+}
+
+/* ---------- callouts ---------- */
+
+.raspberry-callout {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--s2);
+  align-items: start;
+  padding: 12px 14px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius);
+  margin-inline: 0;
+}
+
+.raspberry-callout > .callout-body { min-width: 0; }
+
+.callout-controls {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  width: 26px;
+  padding-top: 1px;
+}
+
+.callout-emoji {
+  font-size: 17px;
+  line-height: 1.35;
+  border-radius: var(--radius-sm);
+  padding: 1px;
+  transition: background-color var(--t-hover) var(--spring-soft);
+}
+.callout-emoji:hover { background: var(--hover-strong); }
+
+.callout-emoji-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 2px;
+  padding: 0 var(--s2) var(--s3);
+  max-height: 320px;
+  overflow-y: auto;
+}
+.callout-emoji-grid > button {
+  font-family: "Segoe UI Emoji", "Apple Color Emoji", emoji, sans-serif;
+  font-size: 21px;
+  line-height: 1.3;
+  padding: 5px 0;
+  border-radius: var(--radius-sm);
+  transition: background-color var(--t-tap) var(--spring-soft);
+}
+.callout-emoji-grid > button:hover { background: var(--hover-strong); }
+
+/* ---------- columns ---------- */
+
+.raspberry-columns-frame { position: relative; margin-bottom: 20px; }
+
+.raspberry-columns {
+  display: grid;
+  gap: var(--s4);
+  align-items: start;
+}
+
+.raspberry-column { min-width: 0; }
+
+/* Only appears on hover: leaving a column layout is rare enough that a
+   permanent button would be visual noise on every multi-column page. */
+.columns-exit {
+  position: absolute;
+  right: 0;
+  bottom: -24px;
+  display: flex;
+  opacity: 0;
+  transition: opacity var(--t-hover) var(--spring-soft);
+}
+.raspberry-columns-frame:hover .columns-exit,
+.columns-exit:focus-within { opacity: 1; }
+.columns-exit button {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--hairline);
+  background: var(--elevated);
+  color: var(--text-3);
+  font-size: var(--fs-micro);
+  white-space: nowrap;
+}
+.columns-exit button:hover { color: var(--text); border-color: var(--hairline-strong); }
+
+/* ---------- page references ---------- */
+
+/* A page reference is one row, always. The title used to wrap mid-phrase
+   because it is a bare text run in a shrink-to-fit flex row that was being
+   clamped to `max-width: 100%` — a sub-pixel shortfall was enough to push the
+   last word onto a second line. Long titles now ellipsise instead. */
+.page-reference { min-width: 0; max-width: 100%; }
+.page-reference a {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  /* No `max-width: 100%` here: a percentage max-width on the child feeds back
+     into the shrink-to-fit width of this wrapper, and the cycle cost every pill
+     about 4px — enough to ellipsise a ten-character title that had room to
+     spare. The wrapper owns the width cap now. */
+  white-space: nowrap;
+  padding: 1px 6px 1px 4px;
+  margin-inline-start: -4px;
+  border-radius: var(--radius-sm);
+  color: var(--text);
+  text-decoration: none;
+  text-underline-offset: 2px;
+  box-shadow: inset 0 -1px 0 var(--hairline-strong);
+  transition: background-color var(--t-hover) var(--spring-soft),
+              box-shadow var(--t-hover) var(--spring-soft);
+}
+.page-reference a > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.page-reference a:hover {
+  background: var(--hover);
+  box-shadow: inset 0 -1px 0 var(--accent-line);
+}
+.page-reference a svg { flex: 0 0 auto; color: var(--text-3); }
+.page-reference.unavailable a {
+  color: var(--text-3);
+  box-shadow: inset 0 -1px 0 var(--hairline);
+  text-decoration: line-through;
+  text-decoration-color: var(--text-3);
+  cursor: default;
+}
+
+/* An empty tree is a sentence, not a heading — align it with the rows. */
+.side-section .panel-empty { padding: var(--s2) var(--s2); text-align: start; }
+
+/* ---------- editor dialogs (emoji + page pickers) ---------- */
+
+.editor-dialog {
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-lg);
+  background: var(--elevated);
+  color: var(--text);
+  box-shadow: var(--shadow);
+  padding: 0;
+  width: min(440px, calc(100vw - 2 * var(--s4)));
+  max-height: min(70vh, 560px);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.editor-dialog::backdrop {
+  background: var(--scrim);
+  backdrop-filter: blur(3px);
+}
+.editor-dialog[open] { animation: layer-in 160ms var(--spring) both; }
+
+.editor-dialog .panel-head {
+  border-bottom: 1px solid var(--hairline);
+}
+
+.editor-picker-search { padding: var(--s3) var(--s2) var(--s2) var(--s4); flex: 0 0 auto; display: flex; align-items: center; gap: var(--s2); }
+.editor-picker-search svg { color: var(--text-3); flex: 0 0 auto; }
+.editor-picker-search input {
+  width: 100%;
+  flex: 1 1 auto;
+  height: 32px;
+  padding: 0 var(--s2);
+  background: var(--sunken);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  outline: none;
+  transition: border-color var(--t-hover) var(--spring-soft);
+}
+.editor-picker-search input:focus { border-color: var(--accent-line); }
+
+.page-picker-results {
+  overflow-y: auto;
+  padding: var(--s2);
+  display: grid;
+  gap: 1px;
+  min-height: 0;
+}
+.page-picker-results > button {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: 34px;
+  padding: 0 var(--s2);
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  text-align: left;
+}
+.page-picker-results > button:hover { background: var(--hover); color: var(--text); }
+.page-picker-results > button svg { flex: 0 0 auto; color: var(--text-3); }
+.page-picker-results > button span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.dialog-empty {
+  padding: var(--s4) var(--s2);
+  text-align: center;
+  color: var(--text-3);
+  font-size: var(--fs-meta);
+}
+
+.dialog-footer {
+  flex: 0 0 auto;
+  padding: var(--s2) var(--s4) var(--s3);
+  border-top: 1px solid var(--hairline);
+  font-size: var(--fs-micro);
+  color: var(--text-3);
+}
+
+.editor-operation {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: var(--s2) var(--s3);
+  font-size: var(--fs-meta);
+  color: var(--text-3);
+}
+
+/* ---------- shared bits ---------- */
+
+/* Panels opened by the workspace share the editor's chrome. */
+.panel-head {
+  display: flex;
+  align-items: center;
+  gap: var(--s2);
+  padding: var(--s3) var(--s2) var(--s3) var(--s4);
+  border-bottom: 1px solid var(--hairline);
+  flex: 0 0 auto;
+}
+.panel-head h2 {
+  margin: 0;
+  margin-inline-end: auto;
+  font-size: var(--fs-ui);
+  font-weight: 600;
+  letter-spacing: -0.005em;
+}
+
+.panel-wide { width: min(720px, 100%); }
+
+.panel-item-title { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; text-align: start; }
+.panel-item .panel-item-title { font-size: var(--fs-ui); color: var(--text); }
+.panel-item-meta { flex: 0 0 auto; font-size: var(--fs-micro); color: var(--text-3); }
+.panel-item .panel-item-meta { font-size: var(--fs-micro); }
+
+.pill {
+  flex: 0 0 auto;
+  padding: 1px 7px;
+  border-radius: 99px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+}
+
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  height: 24px;
+  padding: 0 8px;
+  flex: 0 0 auto;
+  border-radius: var(--radius-sm);
+  color: var(--text-2);
+  font-size: var(--fs-meta);
+  transition: background-color var(--t-hover) var(--spring-soft), color var(--t-hover) var(--spring-soft);
+}
+.btn-ghost:hover { background: var(--hover-strong); color: var(--text); }
+.btn-ghost:disabled { opacity: 0.45; cursor: default; }
+
+/* A failed save is the one thing allowed to interrupt the page. It sits in the
+   document flow, above the editor, so it cannot be scrolled past. */
+.doc-alert {
+  display: flex;
+  align-items: center;
+  gap: var(--s4);
+  margin-top: var(--s5);
+  padding: 10px 12px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  background: var(--sunken);
+  font-size: var(--fs-meta);
+  color: var(--text-2);
+}
+.doc-alert p { margin: 0; flex: 1 1 auto; }
+.doc-alert > div { display: flex; gap: var(--s1); flex: 0 0 auto; }
+
+.save-state.is-conflict { color: var(--danger); }
+.save-state.is-pending { color: var(--text-2); }
+
+/* Toasts for workspace-level failures (load, trash, restore). */
+.banner {
+  position: fixed;
+  left: 50%;
+  bottom: var(--s5);
+  transform: translateX(-50%);
+  z-index: 90;
+  display: flex;
+  align-items: center;
+  gap: var(--s3);
+  max-width: min(560px, calc(100vw - 2 * var(--s4)));
+  padding: 9px 9px 9px var(--s4);
+  background: var(--elevated);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  font-size: var(--fs-meta);
+  color: var(--text);
+  animation: layer-in 200ms var(--spring) both;
+}
+
+.editor-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--s2);
+  min-height: 220px;
+  color: var(--text-3);
+  font-size: var(--fs-meta);
+}
+
+.spin { animation: spin 900ms linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+
+/* ---------- sign-in ---------- */
+
+.auth {
+  min-height: 100dvh;
+  display: grid;
+  place-items: center;
+  padding: var(--s6) var(--s4);
+  background: var(--canvas);
+}
+.auth-panel { width: min(384px, 100%); }
+
+.auth-mark {
+  display: block;
+  font-family: var(--font-title);
+  font-size: 22px;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--text);
+  margin-bottom: var(--s3);
+}
+.auth-lede { margin: 0 0 var(--s5); font-size: var(--fs-ui); line-height: 1.55; color: var(--text-2); }
+.auth-note { margin: var(--s4) 0 0; font-size: var(--fs-meta); line-height: 1.55; color: var(--text-3); }
+
+.auth-action { width: 100%; height: 38px; justify-content: center; }
+
+.auth-alert {
+  margin: 0 0 var(--s3);
+  padding: 9px 11px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  background: var(--sunken);
+  color: var(--danger);
+  font-size: var(--fs-meta);
+  line-height: 1.45;
+}
+.auth-alert.is-good { color: var(--text-2); }
+
+.auth-label { display: block; margin-bottom: 6px; font-size: var(--fs-meta); color: var(--text-2); }
+
+.auth-code {
+  width: 100%;
+  margin-bottom: var(--s3);
+  padding: 10px 12px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  background: var(--sunken);
+  color: var(--text);
+  font-size: 20px;
+  letter-spacing: 0.3em;
+  text-align: center;
+}
+.auth-code:focus { outline: none; border-color: var(--accent-line); }
+
+.auth-links { display: flex; justify-content: space-between; margin-top: var(--s4); font-size: var(--fs-meta); color: var(--text-3); }
+.auth-links button, .auth-links a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }
+.auth-links button:hover, .auth-links a:hover { color: var(--text); }
+
+@media (prefers-reduced-motion: reduce) {
+  .spin { animation: none; }
+  .editor-dialog[open] { animation: none; }
+}

@@ -1,17 +1,18 @@
-import { test } from "node:test";
+﻿import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { mkdtemp, rm } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase, LOCAL_USER_ID, LOCAL_WORKSPACE_ID } from "../src/server/database";
+import { openMigrated } from "./schema";
 import { RaspberryService, localActor, AppError } from "../src/server/service";
 import { emptyDocument, documentSchema } from "../src/lib/document";
 import { localAccessError } from "../src/server/local-access";
 import { backupSqlite } from "../src/server/backup";
 const owner = localActor();
 const mutationId = () => randomUUID();
-async function fixture() { const db = await openDatabase("file::memory:"), service = new RaspberryService(db); await service.seed(); return { db, service }; }
+async function fixture() { const db = await openMigrated(), service = new RaspberryService(db); await service.seed(); return { db, service }; }
 
 test("only one concurrent edit at a revision succeeds; both history and text stay consistent", async () => {
   const { db, service } = await fixture();
@@ -76,9 +77,9 @@ test("trash/restore preserves a subtree without restoring independently trashed 
 test("page data survives closing and reopening the database; reseeding does not recreate pages", async () => {
   const folder = await mkdtemp(join(tmpdir(), "raspberry-test-")), url = "file:" + join(folder, "pages.sqlite");
   try {
-    const first = await openDatabase(url), one = new RaspberryService(first); await one.seed();
+    const first = await openMigrated(url), one = new RaspberryService(first); await one.seed();
     const page = await one.create(owner, { title: "Persistent idea", mutationId: mutationId() }); await first.close();
-    const second = await openDatabase(url), two = new RaspberryService(second); await two.seed();
+    const second = await openMigrated(url), two = new RaspberryService(second); await two.seed();
     assert.equal((await two.get(owner, page.id)).title, "Persistent idea");
     assert.equal((await two.list(owner)).length, 4); await second.close();
   } finally { assert.ok(folder.startsWith(join(tmpdir(), "raspberry-test-"))); await rm(folder, { recursive: true, force: true }); }
@@ -93,7 +94,7 @@ test("document validation rejects executable links, unknown fields, duplicate ID
 });
 test("a live database backup preserves WAL commits and opens as a recoverable workspace", async () => {
   const folder = await mkdtemp(join(tmpdir(), "raspberry-backup-"));
-  const db = await openDatabase("file:" + join(folder, "source.sqlite")), service = new RaspberryService(db); await service.seed();
+  const db = await openMigrated("file:" + join(folder, "source.sqlite")), service = new RaspberryService(db); await service.seed();
   try {
     const page = await service.create(owner, { title: "Recover me", mutationId: mutationId() });
     const path = await backupSqlite("file:" + join(folder, "source.sqlite"), join(folder, "backup.sqlite"));

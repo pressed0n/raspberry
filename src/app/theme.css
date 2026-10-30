@@ -1,0 +1,208 @@
+/* Raspberry — design tokens
+   B18 reskin prototype. Dark is the default surface; light is a full sibling,
+   not an afterthought, so B20 can wire the toggle without re-doing the palette. */
+
+:root {
+  color-scheme: dark;
+
+  /* ---- type ---- */
+  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text",
+    "Segoe UI", Roboto, sans-serif;
+  /* The warmth the old build put into poems now lives in the title's typeface. */
+  --font-title: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua",
+    Georgia, serif;
+  --font-mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+
+  --fs-micro: 11px;   /* caps labels, kbd */
+  --fs-meta: 12px;    /* word count, timestamps */
+  --fs-ui: 13px;      /* sidebar rows, buttons */
+  --fs-body: 16px;    /* editor body */
+  --fs-h3: 17.5px;
+  --fs-h2: 21px;
+  --fs-h1: 26px;
+  --fs-title: clamp(30px, 3.2vw, 40px);
+
+  --lh-body: 1.65;
+  --lh-tight: 1.18;
+
+  /* ---- space ---- */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+
+  /* The one gap between two objects in the document. Applied to the block
+     wrapper, not the block content, so node views that render as siblings
+     (callouts, column sets) get the same gap as everything else. */
+  --block-gap: 5px;
+
+  /* ---- shell ---- */
+  --sidebar-w: 264px;
+  --topbar-h: 48px;
+  --row-h: 30px;
+  --radius-sm: 5px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --measure: 708px;
+
+  /* ---- dark (default) ---- */
+  --canvas: #0d0c0c;
+  --canvas-fade: rgba(13, 12, 12, 0.92);
+  --surface: #151414;
+  --raised: #191818;
+  --elevated: #201e1e;
+  --sunken: #0a0909;
+
+  --hairline: rgba(255, 255, 255, 0.075);
+  --hairline-strong: rgba(255, 255, 255, 0.13);
+
+  --text: #eceae7;
+  --text-2: #a6a29c;
+  --text-3: #7d7972; /* 12px meta needs >= 4.5:1 on --canvas; #6b6761 was 3.5:1 */
+
+  --hover: rgba(255, 255, 255, 0.04);
+  --hover-strong: rgba(255, 255, 255, 0.07);
+
+  /* ---- block palette (B30) ----
+     Declared on `:root` and *only* here. `globals.css` maps BlockNote's
+     `--bn-colors-highlights-*` names onto these, which is what lets the settings
+     page override a colour by writing one property on the root element: a value
+     declared on `.bn-editor` would beat anything inherited from `:root`.
+     Generated from `src/lib/palette.ts`; `tests/palette.test.ts` fails if these
+     drift from it. Text sits near 70% lightness and keeps its saturation, because
+     these are for highlighting a word, not tinting it; the fills carry the same
+     hue at ~17-20% lightness so a highlight and its callout read as one colour. */
+  --palette-gray-text: #c1beb9;
+  --palette-gray-background: #2e2c29;
+  --palette-brown-text: #d99c73;
+  --palette-brown-background: #2e2219;
+  --palette-red-text: #ee8181;
+  --palette-red-background: #461b22;
+  --palette-orange-text: #f5a966;
+  --palette-orange-background: #482a14;
+  --palette-yellow-text: #f8d359;
+  --palette-yellow-background: #413616;
+  --palette-green-text: #81eeaf;
+  --palette-green-background: #1c3628;
+  --palette-blue-text: #85c2ff;
+  --palette-blue-background: #1a3047;
+  --palette-purple-text: #ae9eff;
+  --palette-purple-background: #251f47;
+  --palette-pink-text: #fa9ed2;
+  --palette-pink-background: #3f2132;
+
+  /* Accent and checkbox are generated too (B30): `src/lib/palette.ts` owns the
+     hue, saturation and lightness, and `paletteVars()` writes these same four
+     siblings at runtime when the user moves the slider. */
+  --accent: #ef7b7b;
+  --accent-strong: #f4a4a4;
+  --accent-soft: rgba(239, 123, 123, 0.12);
+  --accent-line: rgba(239, 123, 123, 0.42);
+  /* The checklist tick, deliberately not `--accent`: a tick in the accent colour
+     turns red for a red accent, and a red tick reads as "this is a problem". */
+  --checkbox: #5ccc8b;
+
+  --danger: #f2777f;
+  --warn: #e0b062;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.6), 0 2px 10px rgba(0, 0, 0, 0.45);
+
+  --scrim: rgba(6, 6, 6, 0.46);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --canvas: #faf9f7;
+  --canvas-fade: rgba(250, 249, 247, 0.9);
+  --surface: #f3f2ef;
+  --raised: #ffffff;
+  --elevated: #ffffff;
+  --sunken: #f0efeb;
+
+  --hairline: rgba(24, 22, 20, 0.09);
+  --hairline-strong: rgba(24, 22, 20, 0.16);
+
+  --text: #1b1a18;
+  --text-2: #5b5852;
+  --text-3: #736f68;
+
+  --hover: rgba(24, 22, 20, 0.04);
+  --hover-strong: rgba(24, 22, 20, 0.07);
+
+  --palette-gray-text: #66635c;
+  --palette-gray-background: #efeeec;
+  --palette-brown-text: #855432;
+  --palette-brown-background: #e7d3c6;
+  --palette-red-text: #ae2934;
+  --palette-red-background: #faccd2;
+  --palette-orange-text: #a7581b;
+  --palette-orange-background: #f8d7bf;
+  --palette-yellow-text: #8e6a15;
+  --palette-yellow-background: #faedc6;
+  --palette-green-text: #14904d;
+  --palette-green-background: #c9e9d8;
+  --palette-blue-text: #1879e7;
+  --palette-blue-background: #cfe2f7;
+  --palette-purple-text: #4023d1;
+  --palette-purple-background: #d9d3f8;
+  --palette-pink-text: #c76b96;
+  --palette-pink-background: #f4dce7;
+
+  --accent: #a93250;
+  --accent-strong: #892941;
+  --accent-soft: rgba(169, 50, 80, 0.09);
+  --accent-line: rgba(169, 50, 80, 0.35);
+  --checkbox: #298e58;
+
+  --danger: #b8333d;
+  --warn: #9a6a12;
+
+  --shadow-sm: 0 1px 2px rgba(24, 22, 20, 0.07);
+  --shadow: 0 8px 24px rgba(24, 22, 20, 0.1), 0 1px 3px rgba(24, 22, 20, 0.08);
+  --shadow-lg: 0 24px 64px rgba(24, 22, 20, 0.16), 0 2px 10px rgba(24, 22, 20, 0.08);
+
+  --scrim: rgba(24, 22, 20, 0.28);
+}
+
+/* Motion: one place to change, and a real reduced-motion path rather than
+   "animation: none" that leaves the UI feeling broken. */
+:root {
+  --spring: cubic-bezier(0.32, 0.72, 0, 1); /* critically-damped feel, no overshoot */
+  --spring-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --t-tap: 90ms;
+  --t-hover: 130ms;
+  --t-layer: 220ms;
+  /* Things that change *position* rather than appearance. Slower than a hover
+     so the eye can follow the move, still inside the 300ms UI budget. */
+  --t-move: 180ms;
+  /* Departures. A thing that is leaving should get out of the way faster than
+     the thing that replaces it took to arrive — symmetric in-and-out timings are
+     the single most common reason a correct animation still feels wooden.
+
+     150ms, not the 120ms this shipped as: departures get the *bottom* of the
+     150–250ms band a disclosure lives in, rather than a number below it. The
+     asymmetry lives here, in duration — not in curve. See the note on
+     `.adv-panel` in settings.css for why the exit curve went away. */
+  --t-collapse: 150ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-tap: 1ms;
+    --t-hover: 1ms;
+    --t-layer: 1ms;
+    --t-move: 1ms;
+    --t-collapse: 1ms;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --topbar-blur: none;
+  }
+}

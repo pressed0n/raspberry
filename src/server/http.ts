@@ -17,6 +17,12 @@ export async function api(request: Request, work: (context: ApiContext) => Promi
     if (limited) throw new AppError(429, "rate_limited", limited);
     const actor = await resolveActor(request);
     const result = await work({ actor, requestId });
+    // A handler may return a `Response` when the payload is not JSON — media bytes
+    // being the reason this exists. Serialising one would have produced `{}`.
+    if (result instanceof Response) {
+      result.headers.set("X-Request-Id", requestId);
+      return result;
+    }
     return json(result, 200, requestId);
   } catch (error) {
     return fail(error, requestId);
@@ -56,7 +62,16 @@ export async function publicApi(
 function fail(error: unknown, requestId: string) {
   if (error instanceof AppError) return json({ error: { code: error.code, message: error.message } }, error.status, requestId);
   if (error instanceof z.ZodError) return json({ error: { code: "invalid_input", message: error.issues[0]?.message ?? "Invalid input." } }, 400, requestId);
-  console.error("Raspberry request failed", requestId, error instanceof Error ? error.name : "UnknownError");
+  /* The error *name* alone is not diagnosable: "TypeError" and a stack are the
+     difference between a five-minute fix and a bisect. The message goes to the server
+     log, never to the client — the response stays generic on purpose. */
+  console.error(
+    "Raspberry request failed",
+    requestId,
+    error instanceof Error ? error.name : "UnknownError",
+    error instanceof Error ? error.message : String(error),
+    process.env.NODE_ENV === "production" || !(error instanceof Error) ? "" : error.stack,
+  );
   return json({ error: { code: "internal_error", message: "Something went wrong. Your draft has been kept." } }, 500, requestId);
 }
 function json(body: unknown, status: number, requestId: string) {

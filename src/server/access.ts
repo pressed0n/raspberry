@@ -118,10 +118,11 @@ function configuredHostedOptions(): HostedAccessOptions {
  * The single entry point used by `proxy.ts` and by `api()`. Returns a message
  * to deny the request, or null to allow it.
  *
- * `session` mode intentionally never returns null: the transport checks run
- * first so misconfiguration is reported accurately, and the request is then
- * refused until sessions exist. Replacing the final return with a real session
- * lookup is the whole of the remaining access work.
+ * `session` mode answers the transport question only: bare `https` public origin,
+ * trusted Host, allow-listed Origin, no cross-site mutations. When those pass it
+ * returns null and the request is admitted to the app. Identity is a separate
+ * decision: `resolveActor` establishes who is calling, and `proxy.ts` refuses a
+ * request with no valid session cookie before any handler touches the database.
  */
 export function requestAccessError(
   headers: Headers,

@@ -42,6 +42,41 @@ export function edited(state: SyncState, changes: Partial<Draft>): SyncState {
 /** A draft recovered from local storage is an unsaved local edit, not a saved one. */
 export const recovered = (state: SyncState, draft: Draft): SyncState => ({ ...state, latest: draft, editSeq: state.editSeq + 1 });
 
+/**
+ * Adopts a write this draft did not make: the server appended blocks to the page
+ * underneath an open editor. Today that is the pageLink a new sub-page leaves inside
+ * its parent — nesting is stored twice, as `parent_id` (what the tree draws) and as a
+ * block in the parent's content (what the page shows) — and an open parent never hears
+ * about the second half.
+ *
+ * The append is the *only* change, so the server's copy has to be the document this
+ * record already treats as saved, plus a tail. When it is anything else the page moved
+ * on for another reason and this returns null: the record keeps its own revision, its
+ * next save is refused as a conflict, and whatever the server holds now stays put.
+ *
+ * The tail is appended to the local draft too, so a half-finished page gains the new
+ * child without losing a keystroke, and the base revision moves to the adopted copy so
+ * the save after this writes the appended blocks back instead of deleting them.
+ */
+export function adoptedAppend(state: SyncState, fresh: Page): SyncState | null {
+  const base = state.persisted.content;
+  if (fresh.content.length <= base.length) return null;
+  if (!base.every((block, index) => fresh.content[index]?.id === block.id)) return null;
+  /* An unsaved draft stays unsaved, but the payload sent for it carries the pre-append
+     document under the pre-append revision; it is dropped rather than retried, and the
+     next save is rebuilt on the revision this adoption brings in. */
+  const editSeq = state.editSeq + 1;
+  return {
+    ...state,
+    persisted: fresh,
+    latest: { ...state.latest, content: [...state.latest.content, ...fresh.content.slice(base.length)] },
+    editSeq,
+    savedSeq: hasUnsavedChanges(state) ? state.savedSeq : editSeq,
+    inFlight: null,
+    inFlightSeq: 0,
+  };
+}
+
 export type SaveOutcome = "saved" | "error" | "conflict" | "stuck";
 
 /**
@@ -74,6 +109,10 @@ export async function runSaveLoop(io: SyncIO, send: (payload: Payload) => Promis
       const page = await send(plan.payload);
       // Re-read: edits made during the request decide whether the server's copy wins.
       const live = io.get();
+      /* A round answered after a rebase (`adoptedAppend`) confirms a version the record
+         has already moved past. Writing it back would un-adopt the appended blocks and
+         hand the next save a stale base to overwrite them with. */
+      if (page.revision < live.persisted.revision) { io.set({ ...live, inFlight: null, inFlightSeq: 0 }); continue; }
       const confirmed: SyncState = { ...live, persisted: page, inFlight: null, savedSeq: plan.sentSeq };
       // Adopt the server's canonical draft only when nothing raced this save. This
       // replaces whole-document JSON comparison, which could never settle once the

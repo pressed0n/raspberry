@@ -1,8 +1,9 @@
-import { test } from "node:test";
+﻿import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openDatabase, LOCAL_WORKSPACE_ID } from "../src/server/database";
+import { LOCAL_WORKSPACE_ID } from "../src/server/database";
+import { openMigrated } from "./schema";
 import { RaspberryService, localActor, AppError } from "../src/server/service";
-import { createCallout, createColumns, createPageLink, documentSchema, editorDocument, emptyDocument, plainText, toMarkdown, type DocumentBlock } from "../src/lib/document";
+import { copyDocument, createCallout, createColumns, createPageLink, documentSchema, editorDocument, emptyDocument, plainText, toMarkdown, type DocumentBlock } from "../src/lib/document";
 import { migrate } from "../src/server/migrations";
 
 function table(): DocumentBlock {
@@ -18,7 +19,7 @@ test("callout colors migrate recursively and the standard palette survives savin
   const migrated = editorDocument([columns]);
   assert.deepEqual(migrated[0].children[0].children[0].props, { emoji: "💡", backgroundColor: "blue" });
   assert.equal(legacy.props.color, "blue");
-  const db = await openDatabase("file::memory:"), service = new RaspberryService(db), actor = localActor(); await service.seed();
+  const db = await openMigrated("file::memory:"), service = new RaspberryService(db), actor = localActor(); await service.seed();
   try {
     const page = await service.create(actor, { title: "Palette", content: migrated, mutationId: crypto.randomUUID() });
     for (const backgroundColor of ["default", "gray", "brown", "red", "orange", "yellow", "green", "blue", "purple", "pink"]) {
@@ -32,7 +33,7 @@ test("callout colors migrate recursively and the standard palette survives savin
   assert.equal(documentSchema.safeParse([{ ...legacy, props: { emoji: "💡", backgroundColor: "url(https://example.com)" } }]).success, false);
 });
 test("nested callouts, two-to-five columns, tables and dividers survive save, history and Markdown export", async () => {
-  const db = await openDatabase("file::memory:"), service = new RaspberryService(db), actor = localActor(); await service.seed();
+  const db = await openMigrated("file::memory:"), service = new RaspberryService(db), actor = localActor(); await service.seed();
   try {
     const callout = createCallout(); callout.children[0].content = [{ type: "text", text: "Nested thought 🥳", styles: {} }];
     callout.children.push(table(), { id: crypto.randomUUID(), type: "divider", props: {}, children: [] });
@@ -48,7 +49,7 @@ test("nested callouts, two-to-five columns, tables and dividers survive save, hi
   } finally { await db.close(); }
 });
 test("page creation links children once; ordinary page links do not reparent their target", async () => {
-  const db = await openDatabase("file::memory:"), service = new RaspberryService(db), actor = localActor(); await service.seed();
+  const db = await openMigrated("file::memory:"), service = new RaspberryService(db), actor = localActor(); await service.seed();
   try {
     const parent = await service.create(actor, { title: "Parent", mutationId: crypto.randomUUID() });
     const input = { title: "Child", parentId: parent.id, mutationId: crypto.randomUUID() };
@@ -68,7 +69,7 @@ test("page creation links children once; ordinary page links do not reparent the
   } finally { await db.close(); }
 });
 test("migration 2 backfills legacy child-page links without duplicating references or losing text", async () => {
-  const db = await openDatabase("file::memory:"), service = new RaspberryService(db), actor = localActor(); await service.seed();
+  const db = await openMigrated("file::memory:"), service = new RaspberryService(db), actor = localActor(); await service.seed();
   try {
     const parent = await service.create(actor, { title: "Legacy parent", mutationId: crypto.randomUUID() });
     const child = await service.create(actor, { title: "Legacy child", parentId: parent.id, linkInParent: false, mutationId: crypto.randomUUID() });
@@ -79,7 +80,7 @@ test("migration 2 backfills legacy child-page links without duplicating referenc
   } finally { await db.close(); }
 });
 test("page references reject inaccessible targets and remain editable after a target is trashed", async () => {
-  const db = await openDatabase("file::memory:"), service = new RaspberryService(db), actor = localActor(); await service.seed();
+  const db = await openMigrated("file::memory:"), service = new RaspberryService(db), actor = localActor(); await service.seed();
   try {
     const otherWorkspace = crypto.randomUUID(), otherId = crypto.randomUUID();
     await db.transaction(async (sql) => {
@@ -105,4 +106,39 @@ test("validation rejects malformed layouts and unsafe links inside table cells",
   const bad = table(); if (bad.content && !Array.isArray(bad.content)) bad.content.rows[1].cells[0] = [{ type: "link", href: "javascript:alert(1)", content: [] }];
   assert.equal(documentSchema.safeParse([bad]).success, false);
   assert.throws(() => createColumns(6));
+});
+
+test("a copied block tree keeps its shape and takes fresh ids at every level", () => {
+  const source = [...emptyDocument(), createCallout(), createColumns(2)];
+  const copy = copyDocument(source);
+  const ids = (blocks: DocumentBlock[]): string[] => blocks.flatMap((block) => [block.id, ...ids(block.children)]);
+  const original = new Set(ids(source));
+  assert.equal(ids(copy).filter((id) => original.has(id)).length, 0);
+  assert.deepEqual(copy.map((block) => block.type), source.map((block) => block.type));
+  assert.deepEqual(copy.map((block) => block.props), source.map((block) => block.props));
+  // The container survives, which is the point: a clipboard round trip through
+  // lossy HTML returns the callout's children and no callout.
+  assert.equal(copy[1].type, "callout");
+  assert.equal(copy[1].children.length, source[1].children.length);
+  assert.equal(copy[1].children[0].type, "paragraph");
+  assert.equal(copy[2].children.length, 2);
+  assert.equal(copy[2].children[0].children.length, 1);
+  assert.equal(documentSchema.safeParse(copy).success, true);
+  assert.equal(plainText(copy), plainText(source));
+});
+
+test("a document with no blocks loads as one empty page, not as nothing", () => {
+  /* BlockNote throws "Error creating document from blocks passed as `initialContent`"
+     when given `[]`. A page created as a database row is stored with exactly that, so
+     this was every row: a page that could not be opened. The stored document stays
+     empty — this is the renderer's contract, not the database's. */
+  const loaded = editorDocument([]);
+  assert.equal(loaded.length, 1);
+  assert.equal(loaded[0].type, "paragraph");
+  assert.equal(documentSchema.safeParse(loaded).success, true);
+  assert.equal(plainText(loaded), "");
+  /* A container with no children keeps them: only the top level has to be renderable. */
+  const callout = createCallout();
+  callout.children = [];
+  assert.deepEqual(editorDocument([callout])[0].children, []);
 });

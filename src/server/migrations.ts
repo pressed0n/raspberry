@@ -116,7 +116,193 @@ const authSchema: Migration = {
   },
 };
 
-export const migrations: readonly Migration[] = [baseline, childPageLinks, authSchema];
+/**
+ * Page ordering.
+ *
+ * The sidebar's order used to *be* `created_at` — there was no way to reorder, and
+ * a drag that reordered would have survived exactly one render. Dragging a row
+ * between two others is only honest if the order is data, so each page gets a
+ * `position` scoped to its siblings: two pages with different parents can hold the
+ * same number, and only the relative order within one parent means anything.
+ *
+ * `ADD COLUMN ... NOT NULL DEFAULT 0` is the one alteration both engines accept —
+ * the default is what makes NOT NULL legal on a table that already has rows — so
+ * this stays inside the "additive only" rule the auth migration set out. Column
+ * presence is *not* probed: `PRAGMA table_info` and `information_schema` disagree,
+ * and the version row already makes this run once. The guard below exists only for
+ * a database that somehow already has the column, so a second run is a no-op
+ * rather than a crash.
+ *
+ * The backfill keeps every existing page exactly where it already was drawn:
+ * dense positions per (workspace, parent) in the `created_at, id` order that used
+ * to sort them. A migration that visibly reshuffles someone's sidebar would be
+ * indistinguishable from a bug.
+ */
+const pageOrder: Migration = {
+  version: 4,
+  name: "pages: sibling position, for drag reordering",
+  async up(sql) {
+    try {
+      await sql.query("ALTER TABLE pages ADD COLUMN position INTEGER NOT NULL DEFAULT 0");
+    } catch (error) {
+      // "duplicate column name: position" (SQLite) / 'column "position" of relation
+      // "pages" already exists' (Postgres). Anything else is a real failure.
+      if (!/duplicate column|already exists/i.test(String((error as Error)?.message ?? error))) throw error;
+    }
+    /* Grouped in JavaScript rather than SQL: the ordering has to be identical to the
+       one the old query used, and `ROW_NUMBER() OVER (PARTITION BY parent_id ...)`
+       treats NULL parents as one partition on both engines only by accident. */
+    const rows = await sql.query("SELECT id, workspace_id, parent_id FROM pages ORDER BY created_at, id");
+    const nextPosition = new Map<string, number>();
+    for (const row of rows) {
+      const key = `${String(row.workspace_id)}\u0000${row.parent_id === null ? "" : String(row.parent_id)}`;
+      const position = nextPosition.get(key) ?? 0;
+      nextPosition.set(key, position + 1);
+      await sql.query("UPDATE pages SET position=$1 WHERE id=$2", [position, String(row.id)]);
+    }
+  },
+};
+
+/**
+ * B26 — media blocks store a URL; this table is what that URL resolves to.
+ *
+ * `sha256` is the on-disk filename, so the blob is content-addressed and the same
+ * photo used on three pages costs one copy. `id` is the uuid that appears in the
+ * document, which keeps the reference stable if storage ever moves. Scoping the
+ * unique index by workspace means dedupe never crosses accounts.
+ */
+const fileBlobs: Migration = {
+  version: 5,
+  name: "files: uploaded media blobs",
+  async up(sql) {
+    await sql.query(`CREATE TABLE IF NOT EXISTS files (
+      id TEXT PRIMARY KEY,
+      workspace_id TEXT NOT NULL,
+      sha256 TEXT NOT NULL,
+      name TEXT NOT NULL,
+      mime TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      created_at TEXT NOT NULL
+    )`);
+    await sql.query("CREATE UNIQUE INDEX IF NOT EXISTS files_workspace_hash ON files(workspace_id, sha256)");
+  },
+};
+
+/**
+ * B38 — databases.
+ *
+ * The split from the editor matters more than the columns do. A database's schema,
+ * its views and its cell values are **not** page content: if they were, typing a
+ * number in a cell would rewrite the whole document, bump `pages.revision` and
+ * collide with the draft-conflict machinery, and every sort would mean parsing
+ * documents server-side. The `database` block in a page therefore holds only a
+ * `databaseId`, and everything below is fetched through its own endpoints.
+ *
+ * A **row is a page** (`pages.database_id` set), which is what the wishlist asks
+ * for with "New page — in the second row of the table": a row gets a body, a
+ * revision history, trash, search and links for free. The primary property is
+ * `pages.title`, so there is no duplicate copy of the name.
+ *
+ * `config` and `value` are JSON on purpose: sixteen property types would otherwise
+ * mean sixteen migrations, and the property registry validates both on write. One
+ * row per (row, property) keeps a cell patch a one-row update and a property delete
+ * a one-statement cleanup, which a JSON blob per row could not do without rewriting
+ * every row.
+ */
+const databases: Migration = {
+  version: 6,
+  name: "databases: schema, views and cells",
+  async up(sql) {
+    for (const statement of [
+      `CREATE TABLE IF NOT EXISTS databases (
+        id TEXT PRIMARY KEY,
+        workspace_id TEXT NOT NULL,
+        page_id TEXT,
+        title TEXT NOT NULL,
+        icon TEXT NOT NULL DEFAULT 'database',
+        revision INTEGER NOT NULL DEFAULT 1,
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      )`,
+      "CREATE INDEX IF NOT EXISTS databases_workspace ON databases(workspace_id)",
+      "CREATE INDEX IF NOT EXISTS databases_page ON databases(page_id)",
+      `CREATE TABLE IF NOT EXISTS database_properties (
+        id TEXT PRIMARY KEY,
+        database_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        config TEXT NOT NULL DEFAULT '{}',
+        position INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+      )`,
+      "CREATE INDEX IF NOT EXISTS database_properties_order ON database_properties(database_id, position)",
+      `CREATE TABLE IF NOT EXISTS database_views (
+        id TEXT PRIMARY KEY,
+        database_id TEXT NOT NULL,
+        name TEXT NOT NULL,
+        type TEXT NOT NULL,
+        config TEXT NOT NULL DEFAULT '{}',
+        position INTEGER NOT NULL,
+        created_at TEXT NOT NULL
+      )`,
+      "CREATE INDEX IF NOT EXISTS database_views_order ON database_views(database_id, position)",
+      /* Sparse: a missing row is an empty cell, so deleting a property is a delete
+         rather than a JSON rewrite of every row. */
+      `CREATE TABLE IF NOT EXISTS database_cells (
+        row_id TEXT NOT NULL,
+        property_id TEXT NOT NULL,
+        value TEXT NOT NULL,
+        updated_at TEXT NOT NULL,
+        PRIMARY KEY (row_id, property_id)
+      )`,
+      "CREATE INDEX IF NOT EXISTS database_cells_property ON database_cells(property_id)",
+    ]) {
+      await sql.query(statement);
+    }
+    /* SQLite refuses a REFERENCES clause on ADD COLUMN unless the default is NULL,
+       and the tree queries filter on this column, so it is added bare and indexed. */
+    try {
+      await sql.query("ALTER TABLE pages ADD COLUMN database_id TEXT");
+    } catch (error) {
+      if (!/duplicate column|already exists/i.test(String((error as Error)?.message ?? error))) throw error;
+    }
+    await sql.query("CREATE INDEX IF NOT EXISTS pages_database ON pages(database_id)");
+  },
+};
+
+/**
+ * Property icons, and a name for the primary property.
+ * ---------------------------------------------------------------------------
+ * `database_properties.icon` holds an icon *name*, not a component: the vocabulary
+ * lives in the editor, and a server that has to know what a "check" looks like is a
+ * server that breaks when the icon set changes. NULL means "the one this property
+ * type ships with", so no column is ever iconless.
+ *
+ * `databases.title_property` is a small JSON bag for the primary property, which has
+ * no row in `database_properties` on purpose — its values are `pages.title`, and a
+ * row would be a second copy of the name that can drift. SQLite needs a constant
+ * default on ADD COLUMN, so both arrive nullable and are read defensively.
+ */
+const propertyIcons: Migration = {
+  version: 7,
+  name: "property-icons",
+  async up(sql) {
+    for (const statement of [
+      "ALTER TABLE database_properties ADD COLUMN icon TEXT",
+      "ALTER TABLE databases ADD COLUMN title_property TEXT",
+    ]) {
+      try {
+        await sql.query(statement);
+      } catch (error) {
+        /* A fresh database runs the baseline DDL first; a migrated one has the
+           columns already if this ever gets re-run by hand. */
+        if (!/duplicate column|already exists/i.test(String((error as Error)?.message ?? error))) throw error;
+      }
+    }
+  },
+};
+
+export const migrations: readonly Migration[] = [baseline, childPageLinks, authSchema, pageOrder, fileBlobs, databases, propertyIcons];
 
 export type MigrationResult = { applied: number[]; version: number };
 

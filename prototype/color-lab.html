@@ -1,0 +1,608 @@
+<!doctype html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Raspberry — Colour Lab</title>
+<style>
+/* Raspberry — the colour lab.
+   ---------------------------------------------------------------------------
+   A standalone page, no build step and no imports, for the one thing a swatch
+   cannot tell you: whether nine colours and their fills still hang together when
+   you move one of them.
+
+   It is deliberately separate from the app. Tuning a default is a design
+   decision made once, slowly, with a whole page of them in front of you; the
+   settings page is for the change you want *now*. Building this as a route
+   inside the app would have meant either shipping a half-finished picker or
+   recompiling to see a colour.
+
+   The HSL maths below is a copy of `src/lib/palette.ts`. Two implementations of
+   one formula is a smell, but the alternative is a bundler in front of a
+   prototype file, and this page has to open by double-clicking it.
+*/
+:root {
+  --ui: "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+  --mono: ui-monospace, "Cascadia Mono", Consolas, monospace;
+
+  --bg: #0d0c0c;
+  --surface: #151414;
+  --surface-2: #1b1a19;
+  --text: #eceae7;
+  --text-2: #a6a29c;
+  --text-3: #7d7972;
+  --line: rgba(255, 255, 255, 0.075);
+  --line-strong: rgba(255, 255, 255, 0.13);
+  --hover: rgba(255, 255, 255, 0.04);
+  --radius: 8px;
+  --radius-sm: 5px;
+  --radius-lg: 12px;
+
+  color-scheme: dark;
+  --accent: #ef7b96;
+  --accent-strong: #f4a4b7;
+  --accent-soft: rgba(239, 123, 150, 0.12);
+  --accent-line: rgba(239, 123, 150, 0.42);
+  --checkbox: #5ccc90;
+}
+:root[data-theme="light"] {
+  color-scheme: light;
+  --bg: #faf9f7;
+  --surface: #f3f2ef;
+  --surface-2: #ffffff;
+  --text: #1c1a18;
+  --text-2: #5b5852;
+  --text-3: #736f68;
+  --line: rgba(24, 22, 20, 0.09);
+  --line-strong: rgba(24, 22, 20, 0.16);
+  --hover: rgba(24, 22, 20, 0.04);
+  --accent: #a93250;
+  --accent-strong: #892941;
+  --accent-soft: rgba(169, 50, 80, 0.09);
+  --accent-line: rgba(169, 50, 80, 0.35);
+  --checkbox: #298e58;
+}
+
+* { box-sizing: border-box; }
+body {
+  margin: 0;
+  min-height: 100vh;
+  background: var(--bg);
+  color: var(--text);
+  font: 13px/1.5 var(--ui);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* ---------- header ---------- */
+header {
+  position: sticky; top: 0; z-index: 3;
+  display: flex; align-items: center; gap: 12px;
+  height: 52px; padding: 0 20px;
+  background: color-mix(in srgb, var(--bg) 92%, transparent);
+  backdrop-filter: blur(18px) saturate(1.5);
+  border-bottom: 1px solid var(--line);
+}
+header h1 { font-size: 13px; font-weight: 600; margin: 0; }
+header .sub { color: var(--text-3); font-size: 11px; }
+.spacer { flex: 1 1 auto; }
+.btn {
+  font: inherit; font-size: 12px; color: var(--text-2);
+  background: transparent; border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm); padding: 5px 10px; cursor: pointer;
+  transition: color 130ms ease, border-color 130ms ease, background 130ms ease;
+}
+.btn:hover { color: var(--text); border-color: var(--accent-line); background: var(--hover); }
+.btn.primary { color: var(--bg); background: var(--accent); border-color: transparent; font-weight: 600; }
+.btn.primary:hover { background: var(--accent-strong); color: var(--bg); }
+.seg { display: inline-flex; gap: 2px; padding: 3px; background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); }
+.seg button {
+  font: inherit; font-size: 12px; color: var(--text-2); background: transparent;
+  border: 0; border-radius: var(--radius-sm); padding: 5px 14px; cursor: pointer;
+}
+.seg button.on { color: var(--text); background: var(--hover); }
+
+/* ---------- layout ---------- */
+main {
+  display: grid; grid-template-columns: minmax(0, 1fr) 380px;
+  gap: 24px; padding: 20px; max-width: 1280px; margin: 0 auto; align-items: start;
+}
+.card { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius-lg); padding: 16px; }
+.card + .card { margin-top: 16px; }
+.card h2 { font-size: 17px; font-weight: 600; margin: 0 0 4px; }
+.card p.hint { color: var(--text-3); font-size: 12px; margin: 0 0 14px; max-width: 62ch; }
+
+.chips { display: grid; grid-template-columns: repeat(auto-fill, minmax(82px, 1fr)); gap: 8px; margin-bottom: 16px; }
+.chip {
+  display: grid; gap: 6px; padding: 6px; font: inherit; font-size: 11px;
+  color: var(--text-2); background: var(--bg); border: 1px solid var(--line);
+  border-radius: var(--radius); cursor: pointer; text-align: center;
+}
+.chip .aa { display: grid; place-items: center; height: 34px; border-radius: var(--radius-sm); font-size: 16px; font-weight: 600; }
+.chip.on { border-color: var(--accent-line); color: var(--text); }
+
+.groups { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+.group { display: grid; gap: 8px; padding: 12px; background: var(--bg); border: 1px solid var(--line); border-radius: var(--radius); }
+.group h3 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: var(--text-3); margin: 0; }
+.swatch { display: grid; place-items: center; height: 48px; border-radius: var(--radius-sm); font-size: 21px; font-weight: 600; background: var(--hover); }
+
+.axis { display: grid; grid-template-columns: 72px minmax(0, 1fr) 46px; align-items: center; gap: 8px; font-size: 12px; color: var(--text-2); }
+.axis output { text-align: right; color: var(--text-3); font-variant-numeric: tabular-nums; }
+input[type="range"] { width: 100%; height: 16px; appearance: none; background: transparent; cursor: pointer; }
+input[type="range"]::-webkit-slider-runnable-track { height: 4px; border-radius: 2px; background: var(--line-strong); }
+input[type="range"]::-webkit-slider-thumb { appearance: none; width: 12px; height: 12px; margin-top: -4px; border-radius: 50%; background: var(--text); }
+input[type="range"]::-moz-range-track { height: 4px; border-radius: 2px; background: var(--line-strong); }
+input[type="range"]::-moz-range-thumb { width: 12px; height: 12px; border: 0; border-radius: 50%; background: var(--text); }
+
+/* ---------- ring ---------- */
+.ring-row { display: grid; grid-template-columns: 190px minmax(0, 1fr); gap: 16px; align-items: center; }
+.ring-box { position: relative; width: 184px; height: 184px; }
+.ring-face { position: absolute; inset: 0; border-radius: 50%; cursor: crosshair; mask: radial-gradient(circle, transparent 62px, #000 63px); -webkit-mask: radial-gradient(circle, transparent 62px, #000 63px); }
+.ring-centre { position: absolute; inset: 63px; display: grid; place-items: center; gap: 2px; background: var(--surface); border-radius: 50%; pointer-events: none; }
+.ring-centre .dot { width: 22px; height: 22px; border-radius: 50%; }
+.ring-centre .deg { font-size: 11px; color: var(--text-3); font-variant-numeric: tabular-nums; }
+.ring-marker { position: absolute; top: 50%; left: 50%; width: 10px; height: 10px; margin: -5px 0 0 -5px; border-radius: 50%; background: var(--bg); border: 2px solid var(--text); pointer-events: none; }
+.ring-dots { display: grid; grid-template-columns: repeat(9, 16px); gap: 5px; justify-content: center; margin-top: 10px; }
+.ring-dots button { width: 16px; height: 16px; padding: 0; border-radius: 50%; border: 1px solid var(--line-strong); cursor: pointer; }
+.ring-dots button.on { border-color: var(--text); transform: scale(1.15); }
+
+/* ---------- preview ---------- */
+.preview { display: grid; gap: 12px; font-size: 16px; line-height: 1.55; }
+.preview h3 { font-size: 21px; font-weight: 650; margin: 0; letter-spacing: -0.01em; }
+.preview .ink { font-size: 13px; line-height: 2; }
+.preview .fills { display: flex; flex-wrap: wrap; gap: 6px; }
+.preview .fills span { font-size: 13px; padding: 1px 5px; border-radius: 4px; }
+.preview .callout { display: flex; gap: 10px; padding: 10px 12px; border-radius: var(--radius); font-size: 13px; }
+.preview ul { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: 13px; }
+.preview li { display: flex; align-items: center; gap: 8px; }
+.preview input[type="checkbox"] { accent-color: var(--checkbox); width: 14px; height: 14px; }
+.preview .row { display: flex; align-items: center; gap: 12px; font-size: 13px; }
+.preview .link { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent-line); }
+.preview .button { padding: 5px 12px; border-radius: var(--radius-sm); background: var(--accent); color: var(--bg); font-size: 12px; font-weight: 600; }
+.preview .selected { padding: 3px 8px; border-radius: var(--radius-sm); background: var(--accent-soft); color: var(--accent-strong); font-size: 12px; }
+
+/* ---------- export ---------- */
+textarea {
+  width: 100%; min-height: 150px; font: 11px/1.5 var(--mono);
+  color: var(--text-2); background: var(--bg); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 10px; resize: vertical;
+}
+label.check { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; color: var(--text-2); cursor: pointer; }
+label.check input { accent-color: var(--accent); }
+.row-actions { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; flex-wrap: wrap; }
+.row-actions .note { font-size: 11px; color: var(--text-3); }
+
+@media (max-width: 980px) {
+  main { grid-template-columns: minmax(0, 1fr); }
+  .ring-row { grid-template-columns: minmax(0, 1fr); justify-items: center; }
+  .ring-row .axes { width: 100%; }
+  header .sub { display: none; }
+}
+</style>
+</head>
+<body>
+<header>
+  <h1>Colour Lab</h1>
+  <span class="sub">Raspberry · tune the defaults, then copy the record back</span>
+  <span class="spacer"></span>
+  <div class="seg" role="group" aria-label="Theme">
+    <button data-theme-set="dark" class="on">Dark</button>
+    <button data-theme-set="light">Light</button>
+  </div>
+  <button class="btn" id="reset">Reset</button>
+</header>
+
+<main>
+  <div>
+    <section class="card">
+      <h2>Block colours</h2>
+      <p class="hint">
+        Text is the ink, highlight is the fill behind a word — and a callout's
+        background, because BlockNote paints both from one variable. Move the hue
+        on whichever group you touch: with <em>move hue together</em> on, the other
+        group follows, and keeps its own lightness.
+      </p>
+      <div class="chips" id="chips"></div>
+      <div class="groups">
+        <div class="group">
+          <h3>Text</h3>
+          <div class="swatch" id="text-swatch">Aa</div>
+          <div class="axis"><span>Hue</span><input type="range" min="0" max="359" id="text-h"><output></output></div>
+          <div class="axis"><span>Saturation</span><input type="range" min="0" max="100" id="text-s"><output></output></div>
+          <div class="axis"><span>Lightness</span><input type="range" min="0" max="100" id="text-l"><output></output></div>
+        </div>
+        <div class="group">
+          <h3>Highlight &amp; callout</h3>
+          <div class="swatch" id="bg-swatch">Aa</div>
+          <div class="axis"><span>Hue</span><input type="range" min="0" max="359" id="bg-h"><output></output></div>
+          <div class="axis"><span>Saturation</span><input type="range" min="0" max="100" id="bg-s"><output></output></div>
+          <div class="axis"><span>Lightness</span><input type="range" min="0" max="100" id="bg-l"><output></output></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Primary colour</h2>
+      <p class="hint">Focus rings, selection, the caret, buttons. Click the ring to take one of the palette's hues.</p>
+      <div class="ring-row">
+        <div>
+          <div class="ring-box" id="accent-ring"></div>
+          <div class="ring-dots" id="accent-dots"></div>
+        </div>
+        <div class="axes" id="accent-axes"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Checklist tick</h2>
+      <p class="hint">Green by default, and deliberately not the primary colour — a tick that follows a red accent reads as a problem.</p>
+      <div class="ring-row">
+        <div>
+          <div class="ring-box" id="tick-ring"></div>
+          <div class="ring-dots" id="tick-dots"></div>
+        </div>
+        <div class="axes" id="tick-axes"></div>
+      </div>
+    </section>
+
+    <section class="card">
+      <h2>Take it back</h2>
+      <p class="hint">
+        Copy this and paste it into the chat, or straight into the settings page's
+        import box. It is the same record shape the app stores.
+      </p>
+      <div class="row-actions">
+        <label class="check"><input type="checkbox" id="link" checked> Move hue together</label>
+        <span class="spacer"></span>
+        <button class="btn primary" id="copy">Copy record</button>
+        <button class="btn" id="import-toggle">Paste a record</button>
+      </div>
+      <textarea id="out" readonly spellcheck="false"></textarea>
+      <div id="import-wrap" hidden>
+        <textarea id="in" placeholder="Paste a record here, then press Apply" spellcheck="false" style="margin-top:10px"></textarea>
+        <button class="btn" id="apply" style="margin-top:8px">Apply record</button>
+      </div>
+    </section>
+  </div>
+
+  <aside>
+    <section class="card">
+      <h2>Preview</h2>
+      <div class="preview" id="preview">
+        <h3>A little space for big ideas</h3>
+        <p>Body text stays neutral so the coloured words stay loud.</p>
+        <p class="ink" id="p-ink"></p>
+        <p class="fills" id="p-fills"></p>
+        <div class="callout" id="p-callout"><span>💡</span><span>A callout is a highlight that carries an icon.</span></div>
+        <ul>
+          <li><input type="checkbox" checked> <span>The tick has its own colour.</span></li>
+          <li><input type="checkbox"> <span>An open item stays neutral.</span></li>
+        </ul>
+        <div class="row">
+          <a class="link" href="#" onclick="return false">A link</a>
+          <span class="button">A button</span>
+          <span class="selected">Selected</span>
+        </div>
+      </div>
+    </section>
+  </div>
+</main>
+
+<script>
+(() => {
+  "use strict";
+
+  const NAMES = ["gray","brown","red","orange","yellow","green","blue","purple","pink"];
+  const LABELS = { gray:"Gray", brown:"Brown", red:"Red", orange:"Orange", yellow:"Yellow", green:"Green", blue:"Blue", purple:"Purple", pink:"Pink" };
+
+  /* The defaults in `src/lib/palette.ts`, by hand. If they change there, they
+     change here — this file is a design tool, not a dependency. */
+  const DEFAULTS = {
+    dark: {
+      text: { gray:[40,6,74], brown:[24,52,70], red:[0,76,72], orange:[28,88,68], yellow:[46,92,66], green:[145,55,66], blue:[210,85,71], purple:[268,76,77], pink:[335,78,74] },
+      background: { gray:[40,6,17], brown:[24,30,17], red:[350,45,19], orange:[26,56,18], yellow:[45,50,17], green:[148,32,16], blue:[212,46,19], purple:[268,40,20], pink:[332,42,19] }
+    },
+    light: {
+      text: { gray:[40,5,38], brown:[24,45,36], red:[355,62,42], orange:[26,72,38], yellow:[42,74,32], green:[148,48,32], blue:[212,68,42], purple:[268,55,48], pink:[332,60,46] },
+      background: { gray:[40,8,93], brown:[24,40,92], red:[352,70,94], orange:[26,80,92], yellow:[45,85,88], green:[148,42,91], blue:[212,70,93], purple:[268,60,94], pink:[332,65,94] }
+    },
+    accent: { dark:[346,79,71], light:[345,54,43] },
+    checkbox: { dark:[148,52,58], light:[148,55,36] }
+  };
+
+  const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, Number.isFinite(v) ? v : lo));
+  const hsl = (h, s, l) => ({ h: ((Math.round(h) % 360) + 360) % 360, s: Math.round(clamp(s, 0, 100)), l: Math.round(clamp(l, 0, 100)) });
+  const tuple = (o) => [o.h, o.s, o.l];
+
+  function hex({ h, s, l }) {
+    const sat = s / 100, light = l / 100;
+    const a = sat * Math.min(light, 1 - light);
+    const ch = (n) => {
+      const k = (n + h / 30) % 12;
+      return Math.round((light - a * Math.max(-1, Math.min(k - 3, Math.min(9 - k, 1)))) * 255).toString(16).padStart(2, "0");
+    };
+    return "#" + ch(0) + ch(8) + ch(4);
+  }
+  function rgba({ h, s, l }, alpha) {
+    const sat = s / 100, light = l / 100;
+    const a = sat * Math.min(light, 1 - light);
+    const ch = (n) => {
+      const k = (n + h / 30) % 12;
+      return Math.round((light - a * Math.max(-1, Math.min(k - 3, Math.min(9 - k, 1)))) * 255);
+    };
+    return `rgba(${ch(0)}, ${ch(8)}, ${ch(4)}, ${Math.round(alpha * 1000) / 1000})`;
+  }
+
+  function seed() {
+    const out = {};
+    for (const mode of ["dark", "light"]) {
+      out[mode] = { text: {}, background: {} };
+      for (const name of NAMES) {
+        out[mode].text[name] = hsl(...DEFAULTS[mode].text[name]);
+        out[mode].background[name] = hsl(...DEFAULTS[mode].background[name]);
+      }
+    }
+    out.accent = { dark: hsl(...DEFAULTS.accent.dark), light: hsl(...DEFAULTS.accent.light) };
+    out.checkbox = { dark: hsl(...DEFAULTS.checkbox.dark), light: hsl(...DEFAULTS.checkbox.light) };
+    return out;
+  }
+
+  const S = { theme: "dark", link: true, selected: "red", palette: seed() };
+
+  /* ---------- apply ---------- */
+
+  function apply() {
+    const root = document.documentElement;
+    root.dataset.theme = S.theme;
+    const p = S.palette[S.theme];
+    for (const name of NAMES) {
+      root.style.setProperty(`--palette-${name}-text`, hex(p.text[name]));
+      root.style.setProperty(`--palette-${name}-background`, hex(p.background[name]));
+    }
+    const accent = S.palette.accent[S.theme];
+    const strong = hsl(accent.h, accent.s, accent.l + (S.theme === "dark" ? 9 : -8));
+    root.style.setProperty("--accent", hex(accent));
+    root.style.setProperty("--accent-strong", hex(strong));
+    root.style.setProperty("--accent-soft", rgba(accent, S.theme === "dark" ? 0.12 : 0.09));
+    root.style.setProperty("--accent-line", rgba(accent, S.theme === "dark" ? 0.42 : 0.35));
+    root.style.setProperty("--checkbox", hex(S.palette.checkbox[S.theme]));
+  }
+
+  /* ---------- preview ---------- */
+
+  function paintPreview() {
+    const p = S.palette[S.theme];
+    document.getElementById("p-ink").innerHTML = NAMES
+      .map((n) => `<span style="color:var(--palette-${n}-text)">${LABELS[n]}</span>`).join(" ");
+    document.getElementById("p-fills").innerHTML = NAMES
+      .map((n) => `<span style="background:var(--palette-${n}-background);color:var(--palette-${n}-text)">${LABELS[n]}</span>`).join("");
+    const callout = document.getElementById("p-callout");
+    callout.style.background = `var(--palette-${S.selected}-background)`;
+    callout.style.color = `var(--palette-${S.selected}-text)`;
+    document.getElementById("text-swatch").style.color = hex(p.text[S.selected]);
+    document.getElementById("bg-swatch").style.background = hex(p.background[S.selected]);
+    document.getElementById("bg-swatch").style.color = hex(p.text[S.selected]);
+  }
+
+  /* ---------- chips ---------- */
+
+  function paintChips() {
+    const p = S.palette[S.theme];
+    document.getElementById("chips").innerHTML = NAMES.map((n) => `
+      <button class="chip ${n === S.selected ? "on" : ""}" data-chip="${n}">
+        <span class="aa" style="background:${hex(p.background[n])};color:${hex(p.text[n])}">Aa</span>
+        <span>${LABELS[n]}</span>
+      </button>`).join("");
+  }
+
+  /* ---------- sliders ---------- */
+
+  function bindAxis(id, get, set) {
+    const input = document.getElementById(id);
+    const out = input.parentElement.querySelector("output");
+    input.addEventListener("input", () => {
+      set(Number(input.value));
+      paint();
+    });
+    return () => { input.value = get(); out.textContent = get() + (input.max === "100" ? "%" : "°"); };
+  }
+
+  const selected = () => S.palette[S.theme];
+
+  const refreshers = [
+    bindAxis("text-h", () => selected().text[S.selected].h, (v) => editAxis("text", "h", v)),
+    bindAxis("text-s", () => selected().text[S.selected].s, (v) => editAxis("text", "s", v)),
+    bindAxis("text-l", () => selected().text[S.selected].l, (v) => editAxis("text", "l", v)),
+    bindAxis("bg-h", () => selected().background[S.selected].h, (v) => editAxis("background", "h", v)),
+    bindAxis("bg-s", () => selected().background[S.selected].s, (v) => editAxis("background", "s", v)),
+    bindAxis("bg-l", () => selected().background[S.selected].l, (v) => editAxis("background", "l", v)),
+  ];
+
+  /** Change one axis. A hue edit carries to the sibling group when linked — only
+   *  when the hue actually moves, because the defaults are not hue-matched and
+   *  propagating on a saturation edit would rewrite a colour nobody touched. */
+  function editAxis(group, axis, value) {
+    const theme = selected();
+    const before = theme[group][S.selected];
+    theme[group][S.selected] = hsl(...(axis === "h" ? [value, before.s, before.l]
+      : axis === "s" ? [before.h, value, before.l] : [before.h, before.s, value]));
+    if (S.link && axis === "h" && before.h !== theme[group][S.selected].h) {
+      const sibling = group === "text" ? "background" : "text";
+      theme[sibling][S.selected] = hsl(theme[group][S.selected].h, theme[sibling][S.selected].s, theme[sibling][S.selected].l);
+    }
+    writeOut();
+  }
+
+  /* ---------- rings ---------- */
+
+  const SLICE = 360 / NAMES.length;
+
+  function ringMarkup(id, dotsId, key) {
+    const box = document.getElementById(id);
+    const dots = document.getElementById(dotsId);
+    const value = S.palette[key][S.theme];
+    const stops = NAMES.map((n, i) => `${hex(S.palette[S.theme].text[n])} ${i * SLICE}deg ${(i + 1) * SLICE}deg`).join(", ");
+    const index = Math.max(0, NAMES.findIndex((n) => S.palette[S.theme].text[n].h === value.h));
+    const angle = index * SLICE + SLICE / 2;
+
+    box.innerHTML = `
+      <div class="ring-face" style="background:conic-gradient(from 0deg, ${stops})"></div>
+      <div class="ring-centre">
+        <span class="dot" style="background:${hex(hsl(value.h, 80, 60))}"></span>
+        <span class="deg">${value.h}°</span>
+      </div>
+      <span class="ring-marker" style="transform:rotate(${angle}deg) translateY(-84px) rotate(${-angle}deg)"></span>`;
+
+    box.querySelector(".ring-face").addEventListener("pointerdown", (event) => {
+      const r = box.getBoundingClientRect();
+      const dx = event.clientX - (r.left + r.width / 2);
+      const dy = event.clientY - (r.top + r.height / 2);
+      const deg = ((Math.atan2(dx, -dy) * 180) / Math.PI + 360) % 360;
+      const picked = S.palette[S.theme].text[NAMES[Math.min(NAMES.length - 1, Math.floor(deg / SLICE))]].h;
+      S.palette[key][S.theme] = hsl(picked, value.s, value.l);
+      paint();
+    });
+
+    dots.innerHTML = NAMES.map((n) => {
+      const hue = S.palette[S.theme].text[n].h;
+      return `<button data-ring="${key}" data-hue="${hue}" class="${hue === value.h ? "on" : ""}" style="background:${hex(S.palette[S.theme].text[n])}" title="${LABELS[n]}"></button>`;
+    }).join("");
+  }
+
+  function paintAxes(key, hostId) {
+    const value = S.palette[key][S.theme];
+    const host = document.getElementById(hostId);
+    host.innerHTML = `
+      <div class="axis"><span>Hue</span><input type="range" min="0" max="359" value="${value.h}"><output></output></div>
+      <div class="axis"><span>Saturation</span><input type="range" min="0" max="100" value="${value.s}"><output></output></div>
+      <div class="axis"><span>Lightness</span><input type="range" min="0" max="100" value="${value.l}"><output></output></div>`;
+    const axes = ["h", "s", "l"];
+    host.querySelectorAll("input").forEach((input, i) => {
+      const out = input.parentElement.querySelector("output");
+      const max = input.max === "100";
+      out.textContent = input.value + (max ? "%" : "°");
+      input.addEventListener("input", () => {
+        const current = S.palette[key][S.theme];
+        const next = { ...current };
+        next[axes[i]] = Number(input.value);
+        S.palette[key][S.theme] = hsl(next.h, next.s, next.l);
+        apply(); paintPreview(); writeOut();
+        // Keep the other sliders and the marker honest without rebuilding the
+        // node the user is dragging.
+        host.querySelectorAll("input").forEach((other, j) => {
+          const v = S.palette[key][S.theme][axes[j]];
+          if (other !== input) other.value = v;
+          other.parentElement.querySelector("output").textContent = v + (other.max === "100" ? "%" : "°");
+        });
+        const index = NAMES.findIndex((n) => S.palette[S.theme].text[n].h === S.palette[key][S.theme].h);
+        const marker = document.querySelector(`#${key === "accent" ? "accent-ring" : "tick-ring"} .ring-marker`);
+        if (marker) {
+          const angle = (index >= 0 ? index : 0) * SLICE + SLICE / 2;
+          marker.style.transform = `rotate(${angle}deg) translateY(-84px) rotate(${-angle}deg)`;
+        }
+      });
+    });
+  }
+
+  /* ---------- export ---------- */
+
+  function record() {
+    const p = S.palette;
+    const compact = (obj) => Object.fromEntries(NAMES.map((n) => [n, tuple(obj[n])]));
+    return {
+      dark: { text: compact(p.dark.text), background: compact(p.dark.background) },
+      light: { text: compact(p.light.text), background: compact(p.light.background) },
+      accent: { dark: tuple(p.accent.dark), light: tuple(p.accent.light) },
+      checkbox: { dark: tuple(p.checkbox.dark), light: tuple(p.checkbox.light) }
+    };
+  }
+
+  function writeOut() { document.getElementById("out").value = JSON.stringify(record(), null, 1); }
+
+  function readRecord(raw) {
+    const parsed = JSON.parse(raw);
+    const unpack = (obj, target) => {
+      for (const name of NAMES) {
+        const value = obj?.[name];
+        if (Array.isArray(value) && value.length === 3) target[name] = hsl(...value.map(Number));
+      }
+    };
+    for (const mode of ["dark", "light"]) {
+      unpack(parsed?.[mode]?.text, S.palette[mode].text);
+      unpack(parsed?.[mode]?.background, S.palette[mode].background);
+      for (const key of ["accent", "checkbox"]) {
+        const value = parsed?.[key]?.[mode];
+        if (Array.isArray(value) && value.length === 3) S.palette[key][mode] = hsl(...value.map(Number));
+      }
+    }
+  }
+
+  /* ---------- paint ---------- */
+
+  function paint() {
+    apply();
+    paintChips();
+    paintPreview();
+    refreshers.forEach((refresh) => refresh());
+    ringMarkup("accent-ring", "accent-dots", "accent");
+    ringMarkup("tick-ring", "tick-dots", "checkbox");
+    paintAxes("accent", "accent-axes");
+    paintAxes("checkbox", "tick-axes");
+    writeOut();
+  }
+
+  /* ---------- events ---------- */
+
+  document.addEventListener("click", (event) => {
+    const chip = event.target.closest("[data-chip]");
+    if (chip) { S.selected = chip.dataset.chip; paint(); return; }
+    const dot = event.target.closest("[data-ring]");
+    if (dot) {
+      const key = dot.dataset.ring;
+      const current = S.palette[key][S.theme];
+      S.palette[key][S.theme] = hsl(Number(dot.dataset.hue), current.s, current.l);
+      paint();
+      return;
+    }
+    const themeButton = event.target.closest("[data-theme-set]");
+    if (themeButton) {
+      S.theme = themeButton.dataset.themeSet;
+      document.querySelectorAll("[data-theme-set]").forEach((b) => b.classList.toggle("on", b === themeButton));
+      paint();
+    }
+  });
+
+  document.getElementById("link").addEventListener("change", (event) => { S.link = event.target.checked; });
+  document.getElementById("reset").addEventListener("click", () => { S.palette = seed(); paint(); });
+  document.getElementById("copy").addEventListener("click", async (event) => {
+    const button = event.target;
+    try {
+      await navigator.clipboard.writeText(document.getElementById("out").value);
+      button.textContent = "Copied";
+    } catch {
+      document.getElementById("out").select();
+      button.textContent = "Select all, then copy";
+    }
+    setTimeout(() => { button.textContent = "Copy record"; }, 1600);
+  });
+  document.getElementById("import-toggle").addEventListener("click", () => {
+    const wrap = document.getElementById("import-wrap");
+    wrap.hidden = !wrap.hidden;
+    if (!wrap.hidden) document.getElementById("in").focus();
+  });
+  document.getElementById("apply").addEventListener("click", () => {
+    const button = document.getElementById("apply");
+    try {
+      readRecord(document.getElementById("in").value);
+      paint();
+      button.textContent = "Applied";
+    } catch {
+      button.textContent = "That is not a record";
+    }
+    setTimeout(() => { button.textContent = "Apply record"; }, 1600);
+  });
+
+  paint();
+})();
+</script>
+</body>
+</html>

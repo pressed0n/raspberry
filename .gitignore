@@ -10,7 +10,20 @@ test-results/
 playwright-report/
 artifacts/
 *.log
+# Agent scratch probes. One-off measurement scripts accumulate every session; they are
+# never part of the app. Promoted tools get a real name (`read-spec-page.mjs`) and are
+# tracked; anything still called `tmp-*` is throwaway.
+#
+# They live in `scripts/scratch/` so `scripts/` holds only the ten tools that exist as
+# tools, and so `git status` means "code changed" instead of "an agent measured
+# something". Nothing in scratch/ is imported by the app; it is kept on disk only
+# because a verification run is evidence, and re-running it costs a browser session.
+scripts/tmp-*
+scripts/probe-*
+scripts/scratch/
 # Local push credentials (SSH key / token material) — never commit
 .secrets/
 # Portable Node toolchain used to run the suite on the dev laptop — never commit
 .tools/
+# Agent harness state — never commit
+.unjess/

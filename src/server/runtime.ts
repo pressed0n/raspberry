@@ -1,12 +1,15 @@
 import { accessMode } from "./access";
 import { authConfigured } from "./auth/config";
 import { openDatabase, type Database } from "./database";
+import { DatabaseService } from "./databases";
+import { FileStore } from "./files";
 import { migrate } from "./migrations";
 import { AppError, RaspberryService } from "./service";
 
 const state = globalThis as typeof globalThis & {
   raspberryDatabase?: Promise<Database>;
   raspberryService?: Promise<RaspberryService>;
+  raspberryDatabases?: Promise<DatabaseService>;
 };
 
 /**
@@ -54,6 +57,34 @@ export async function getService(): Promise<RaspberryService> {
     throw error;
   });
   return state.raspberryService;
+}
+
+/**
+ * The blob store. Shares the cached database handle, so a media request does not
+ * open a second connection, and is gated like `getService`: a caller that reached
+ * here without an actor would be serving bytes to nobody in particular.
+ */
+export async function getFileStore(): Promise<FileStore> {
+  if (!servesData()) throw new AppError(503, "not_configured", "This deployment is not configured to serve data.");
+  return new FileStore(await getDatabase());
+}
+
+/**
+ * The database-service handle. Same gate as `getService` — a database is data, so a
+ * caller that arrived without an actor gets a refusal rather than a schema.
+ *
+ * The instance is memoised on the module, which is what makes it cheap and also what
+ * makes a hot-reloaded `Databases` class confusing during development: the *class* is
+ * replaced, this cached *instance* is not, so a method added a minute ago answers
+ * "is not a function" until the process restarts. Editing this file clears it, because
+ * the whole module is re-evaluated.
+ */
+export async function getDatabases(): Promise<DatabaseService> {
+  if (!servesData()) throw new AppError(503, "not_configured", "This deployment is not configured to serve data.");
+  state.raspberryDatabases ??= getDatabase()
+    .then((database) => new DatabaseService(database))
+    .catch((error: unknown) => { state.raspberryDatabases = undefined; throw error; });
+  return state.raspberryDatabases;
 }
 
 /**

@@ -9,6 +9,22 @@ const color = z.string().max(40);
 const safeLink = z.string().max(2048).refine((value) => {
   try { return ["https:", "http:", "mailto:"].includes(new URL(value).protocol); } catch { return false; }
 }, "Use an https, http, or mailto link.");
+/** Media is either a file this workspace stored, or an http(s) link. Nothing else. */
+const mediaUrl = z.string().max(2048).refine((value) => {
+  if (/^\/api\/files\/[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value)) return true;
+  try { return ["https:", "http:"].includes(new URL(value).protocol); } catch { return false; }
+}, "Use an uploaded file or an http link.");
+const mediaProps = z.object({
+  backgroundColor: blockBackgroundColors.optional(),
+  name: z.string().max(200).optional(),
+  url: z.union([z.literal(""), mediaUrl]).optional(),
+  caption: z.string().max(2000).optional(),
+}).strict();
+/**
+ * `previewWidth` is absent until the reader drags a resize handle, and an empty
+ * `url` is the state of a block that has just been inserted — both are valid.
+ */
+const visualProps = mediaProps.extend({ textAlignment: alignment.optional(), showPreview: z.boolean().optional(), previewWidth: z.number().min(20).max(5000).optional() });
 const styles = z.object({ bold: z.boolean().optional(), italic: z.boolean().optional(), underline: z.boolean().optional(), strike: z.boolean().optional(), code: z.boolean().optional(), textColor: color.optional(), backgroundColor: color.optional() }).strict();
 const textSchema = z.object({ type: z.literal("text"), text: z.string().max(100_000), styles }).strict();
 const inlineSchema = z.union([textSchema, z.object({ type: z.literal("link"), href: safeLink, content: z.array(textSchema).max(1000) }).strict()]);
@@ -23,7 +39,7 @@ const tableContentSchema = z.object({
 export type TableContent = z.infer<typeof tableContentSchema>;
 export type DocumentBlock = {
   id: string;
-  type: "paragraph" | "heading" | "bulletListItem" | "numberedListItem" | "checkListItem" | "codeBlock" | "quote" | "table" | "divider" | "callout" | "pageLink" | "columns" | "column";
+  type: "paragraph" | "heading" | "bulletListItem" | "numberedListItem" | "checkListItem" | "codeBlock" | "quote" | "table" | "divider" | "callout" | "pageLink" | "columns" | "column" | "image" | "video" | "audio" | "file" | "database";
   props: Record<string, string | number | boolean>;
   content?: Inline[] | TableContent;
   children: DocumentBlock[];
@@ -37,7 +53,15 @@ const blockSchema: z.ZodType<DocumentBlock> = z.lazy(() => {
     z.object({ ...base, type: z.literal("divider"), props: z.object({}).strict(), content: z.undefined().optional() }).strict(),
     z.object({ ...base, type: z.literal("callout"), props: z.object({ emoji: z.string().min(1).max(32), color: z.enum(calloutColors).optional(), backgroundColor: blockBackgroundColors.optional() }).strict(), content: z.undefined().optional() }).strict(),
     z.object({ ...base, type: z.literal("pageLink"), props: z.object({ pageId: z.string().uuid(), title: z.string().max(200), relationship: z.enum(["child", "link"]) }).strict(), content: z.undefined().optional() }).strict(),
+    /* A database block is a *reference*. The schema, the views and the cell values live
+       in their own tables (migration 6), so a page save never carries a table's data and
+       a cell edit never rewrites the page. `viewId` is optional so one database can be
+       embedded twice, showing a different view in each place. */
+    z.object({ ...base, type: z.literal("database"), props: z.object({ databaseId: z.string().uuid(), viewId: z.string().max(64).optional() }).strict(), content: z.undefined().optional() }).strict(),
     z.object({ ...base, type: z.enum(["columns", "column"]), props: z.object({}).strict(), content: z.undefined().optional() }).strict(),
+    z.object({ ...base, type: z.enum(["image", "video"]), props: visualProps, content: z.undefined().optional() }).strict(),
+    z.object({ ...base, type: z.literal("audio"), props: mediaProps.extend({ showPreview: z.boolean().optional() }).strict(), content: z.undefined().optional() }).strict(),
+    z.object({ ...base, type: z.literal("file"), props: mediaProps, content: z.undefined().optional() }).strict(),
   ]);
 });
 export const documentSchema = z.array(blockSchema).min(1).max(2000).superRefine((blocks, ctx) => {
@@ -52,7 +76,7 @@ export const documentSchema = z.array(blockSchema).min(1).max(2000).superRefine(
       if (block.type === "column" && parent !== "columns") issue("A column must be inside a columns block.");
       if (block.type === "columns" && (block.children.length < 2 || block.children.length > 5 || block.children.some((child) => child.type !== "column"))) issue("Columns must contain two to five column blocks.");
       if (["callout", "column"].includes(block.type) && !block.children.length) issue("A container must have at least one child block.");
-      if (["divider", "pageLink", "table"].includes(block.type) && block.children.length) issue("This block cannot contain child blocks.");
+      if (["divider", "pageLink", "table", "database"].includes(block.type) && block.children.length) issue("This block cannot contain child blocks.");
       if (block.type === "table" && block.content && !Array.isArray(block.content)) {
         const table = block.content;
         if ((table.headerRows ?? 0) > table.rows.length || (table.headerCols ?? 0) > table.columnWidths.length) issue("Table headers exceed the table dimensions.");
@@ -74,10 +98,25 @@ export const createPageSchema = z.object({
 export const patchPageSchema = z.object({
   expectedRevision: z.number().int().positive(), mutationId: z.string().uuid(),
   title: z.string().trim().max(200).optional(), icon: iconSchema.optional(), content: documentSchema.optional(), favorite: z.boolean().optional(),
-}).strict().refine((value) => [value.title, value.icon, value.content, value.favorite].some((v) => v !== undefined), "Supply a change.");
+  /* Re-parenting (B25 "Move to"). `null` means "top level", which is why this
+     is nullable rather than merely optional: absent leaves the parent alone,
+     null deliberately detaches. */
+  parentId: z.string().uuid().nullable().optional(),
+}).strict().refine((value) => [value.title, value.icon, value.content, value.favorite, value.parentId].some((v) => v !== undefined), "Supply a change.");
+/* Re-parenting *and* ordering (B28 drag). Kept out of `patchPageSchema` because a
+   move is not a field write: it renumbers every sibling of the destination inside one
+   transaction, and `index` only means something relative to the list it lands in.
+   `parentId` is required here — a move always states its destination — while the
+   patch schema must keep `undefined` (leave alone) and `null` (detach) distinct. */
+export const movePageSchema = z.object({
+  expectedRevision: z.number().int().positive(), mutationId: z.string().uuid(),
+  parentId: z.string().uuid().nullable(),
+  index: z.number().int().min(0),
+}).strict();
+export type MovePageInput = z.infer<typeof movePageSchema>;
 export type CreatePageInput = z.infer<typeof createPageSchema>;
 export type PatchPageInput = z.infer<typeof patchPageSchema>;
-export type PageSummary = { id: string; parentId: string | null; title: string; icon: PageIcon; favorite: boolean; revision: number; createdAt: string; updatedAt: string; deletedAt: string | null; wordCount: number };
+export type PageSummary = { id: string; parentId: string | null; title: string; icon: PageIcon; favorite: boolean; revision: number; createdAt: string; updatedAt: string; deletedAt: string | null; wordCount: number; position: number };
 export type Page = PageSummary & { content: DocumentBlock[]; schemaVersion: 1 };
 export type Revision = { revision: number; createdAt: string; clientId: string; title: string };
 
@@ -90,6 +129,7 @@ export function plainText(blocks: DocumentBlock[]): string {
     if (Array.isArray(block.content)) own = inlineText(block.content);
     else if (block.content?.type === "tableContent") own = block.content.rows.map((row) => row.cells.map((cell) => inlineText(cellContent(cell))).join("\t")).join("\n");
     else if (block.type === "pageLink") own = String(block.props.title);
+    else if (block.type === "image" || block.type === "video" || block.type === "audio" || block.type === "file") own = String(block.props.caption || block.props.name || "");
     return [own, plainText(block.children)].filter(Boolean).join("\n");
   }).join("\n");
 }
@@ -98,13 +138,33 @@ export function emptyDocument(): DocumentBlock[] { return [{ id: crypto.randomUU
 export function createCallout(): DocumentBlock { return { id: crypto.randomUUID(), type: "callout", props: { emoji: "💡", backgroundColor: "yellow" }, children: emptyDocument() }; }
 // Older pages used a separate callout palette. Convert it before the editor
 // supplies defaults, including callouts nested inside other containers.
+//
+// A page with no blocks is an empty page. BlockNote throws — "Error creating document
+// from blocks passed as `initialContent`" — when it is handed an empty array, and every
+// page created as a database row is stored with exactly `[]`. So every row crashed the
+// editor the moment it was opened: rows were pages you could not read. The stored
+// document stays honestly empty; it is the renderer that needs something to render.
+// The fallback is top-level only, because a container with no children is a shape the
+// editor already handles and a paragraph pushed into one would be a change nobody asked
+// for.
 export function editorDocument(blocks: DocumentBlock[]): DocumentBlock[] {
+  return blocks.length ? convertDocument(blocks) : emptyDocument();
+}
+function convertDocument(blocks: DocumentBlock[]): DocumentBlock[] {
   return blocks.map((block) => {
-    const children = editorDocument(block.children);
+    const children = convertDocument(block.children);
     if (block.type !== "callout") return { ...block, children };
     const { color: legacyColor, ...props } = block.props;
     return { ...block, props: { ...props, backgroundColor: props.backgroundColor ?? legacyColor ?? "yellow" }, children };
   });
+}
+/* A copy of a block tree, with fresh ids at every level: what Duplicate and an
+   internal paste insert. The clipboard cannot carry this for us — the lossy HTML
+   serialiser has no mapping for a callout, so it emits the callout's *children*
+   and the container is gone by the time it is parsed back. Keeping the blocks
+   themselves is the only route that survives every type in the schema. */
+export function copyDocument<T extends { id: string; children: T[] }>(blocks: T[]): T[] {
+  return blocks.map((block) => ({ ...block, id: crypto.randomUUID(), children: copyDocument(block.children ?? []) }));
 }
 export function createColumns(count: number): DocumentBlock {
   if (!Number.isInteger(count) || count < 2 || count > 5) throw new Error("Choose two to five columns.");
@@ -129,9 +189,24 @@ export function toMarkdown(blocks: DocumentBlock[], depth = 0): string {
   return blocks.map((block) => {
     if (block.type === "divider") return "---";
     if (block.type === "pageLink") return `[${escape(String(block.props.title))}](#${block.props.pageId})`;
+    /* A database exports as its name and a pointer, not its rows: `toMarkdown` is pure
+       over the block tree and never sees cell values. Silence would be worse — an
+       exported page would look like it had a gap where a table is. */
+    if (block.type === "database") return "*Database — open in Raspberry to see its rows.*";
     if (block.type === "callout") return `> ${block.props.emoji}\n${toMarkdown(block.children).split("\n").map((line) => `> ${line}`).join("\n")}`;
     if (block.type === "columns") return block.children.map((column, index) => `### Column ${index + 1}\n\n${toMarkdown(column.children)}`).join("\n\n");
     if (block.type === "column") return toMarkdown(block.children, depth);
+    // Media exports as a link, which keeps the export readable everywhere. An
+    // empty media block (inserted but never filled) is not exported at all —
+    // a heading for a file that does not exist is worse than silence.
+    if (block.type === "image" || block.type === "video" || block.type === "audio" || block.type === "file") {
+      const url = String(block.props.url ?? "");
+      if (!url) return "";
+      const label = escape(String(block.props.caption || block.props.name || block.type));
+      const href = url.replace(/[()]/g, (character) => character === "(" ? "%28" : "%29");
+      const mark = block.type === "image" ? `![${label}]` : block.type === "audio" ? `[♪ ${label}]` : block.type === "video" ? `[▶ ${label}]` : `[${label}]`;
+      return `${mark}(${href})`;
+    }
     if (block.type === "table" && block.content && !Array.isArray(block.content)) {
       const rows = block.content.rows.map((row) => `| ${row.cells.map((cell) => inlineMarkdown(cellContent(cell)).replace(/\|/g, "\\|").replace(/\n/g, "<br>")).join(" | ")} |`);
       return [rows[0], `| ${block.content.columnWidths.map(() => "---").join(" | ")} |`, ...rows.slice(1)].join("\n");

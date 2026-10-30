@@ -1,6 +1,9 @@
 # Raspberry: research and implementation plan
 
-Research date: 25 October 2026. Status: implementation started. A local page-editor foundation prototype now exists; see README.md for verified capabilities and limitations. It has not been deployed to NikDTM or the internet.
+Research date: 25 October 2026. Status: implementation started. A local page-editor foundation prototype now exists; see README.md for verified capabilities and limitations.
+
+> **Decision, 28 October 2026 — Raspberry is hosted nowhere, and has no hosting target.**
+> The NikDTM pilot described in section 4 and the cloud VPS migration in section 9 are both **inactive**. A pilot that would have published Raspberry to a third-party subdomain host was cancelled and its files removed from the repository. Sections 4, 9, and the deployment items in section 8 are retained as research notes, not commitments. Do not revive hosting, tunnelling, a public origin, or a deployment pipeline without an explicit new decision from the owner. The live, ordered work list is [BACKLOG.md](BACKLOG.md).
 
 ## 1. Recommended direction
 
@@ -25,7 +28,7 @@ Treat “almost all Notion features” as a long-term direction. Turn it into a 
 
 The user confirmed NikDTM runs Windows and has 80 GB free. The processor, internet upload speed, other workloads, and remote administration access remain unverified. I have not inspected or connected to NikDTM.
 
-Implementation update: the prototype uses schema-versioned BlockNote JSON, SQLite for easy local startup, and an optional PostgreSQL adapter. Browser and stdio MCP operations share the same service and permission checks. Production authentication, remote MCP OAuth, live PostgreSQL validation, hosting, and cross-device access remain upcoming. The roadmap below remains the long-term proposal, not a list of completed features.
+Implementation update: the prototype uses schema-versioned BlockNote JSON, SQLite for easy local startup, and an optional PostgreSQL adapter. Browser and stdio MCP operations share the same service and permission checks. Google sign-in with an emailed code and hashed server-side sessions are implemented, though they have never run against a real mail provider or a public origin. Remote MCP OAuth, live PostgreSQL validation, hosting, and cross-device access remain unbuilt. The roadmap below remains the long-term proposal, not a list of completed features.
 
 ## 2. Build versus fork
 
@@ -79,6 +82,8 @@ Avoid adding Redis, Kubernetes, a vector database, or a local AI model until a m
 Database views must share records: changing a task on a board should change the same task in its table and calendar. Relations, rollups, and formulas can be added later without treating each view as a separate database. Formula execution will need a restricted expression engine, not arbitrary JavaScript execution.
 
 ## 4. Hosting on NikDTM
+
+**Inactive — see the decision at the top of this document.** Nothing in this section is being built, scheduled, or prepared. It is kept for the day hosting becomes a real decision.
 
 The reported 16 GB RAM should be adequate for a small pilot with the proposed stack, subject to other laptop workloads and measurement. If 80 GB is free, it is a plausible starting amount for a text-first app with modest uploads. Reserve room for the OS, images, database growth, logs, upgrades, and temporary backups. Set disk alerts and upload quotas before inviting testers.
 
@@ -204,6 +209,8 @@ Prepare Phase 4's permission foundations in Phase 1, and allow an earlier small 
 A first editor should include paragraphs, headings, lists, checkboxes, links, and basic code blocks. Images/attachments can follow once storage controls work. Begin with reliable online editing; an installable PWA and offline editing are separate milestones. Markdown/JSON export should arrive early for portability; a Notion importer needs sample exports and documented limitations.
 
 ## 9. Migration to a cloud VPS
+
+**Inactive — see the decision at the top of this document.** No VPS migration is planned or being prepared. The portability habits below are still worth keeping while writing code; the migration itself is not work in progress.
 
 Keep application configuration external, database migrations versioned, and persistent data outside disposable containers. Maintain a stable domain and storage abstraction. Do not bake laptop paths, local addresses, or development secrets into documents or client code.
 

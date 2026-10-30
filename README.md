@@ -4,7 +4,7 @@
 
 A quiet home for your notes and ideas. An independent workspace built for people and AI.
 
-**Status: local foundation prototype, v0.1.** Page editing, persistence, and local MCP work. Google login followed by an email code, remote MCP authorization, internet hosting, databases/views, and real-time collaboration are upcoming work. This prototype deliberately rejects non-loopback hosts and does not provide production authentication.
+**Status: local-only prototype, v0.1 — unhosted.** Page editing, persistence, authentication, and local MCP work. Raspberry runs on one machine for one person over loopback, and that is the intended shape for now: it is not deployed anywhere, and there is no public origin. Remote MCP authorization, databases/views, and real-time collaboration are unbuilt. The authentication stack is complete in code but has never been exercised against a real mail provider or a public origin, so it is not yet a production sign-in system.
 
 ## Run locally
 
@@ -39,9 +39,9 @@ Raspberry has two access modes, selected by `RASPBERRY_AUTH_MODE`.
 | Mode | Status | What it enforces |
 | --- | --- | --- |
 | `local` (default) | Works | Loopback Host only; mutations need an allow-listed `Origin`. A tunnel or proxy fails by design. |
-| `session` | **Refused** | The hosted path: bare `https` public origin, Host allow-list, allow-listed `Origin`, no cross-site mutations, HTTPS-only when behind a trusted proxy. Every request is then rejected with `auth_not_configured`. |
+| `session` | Works, never run | The hosted path: bare `https` public origin, Host allow-list, allow-listed `Origin`, no cross-site mutations, HTTPS-only when behind a trusted proxy. A request carrying no valid session cookie is refused by `src/proxy.ts` before any database work. |
 
-Session mode is a reviewed seam, not a feature: the transport checks are implemented and covered by tests, and the only remaining work is a session lookup plus one return value in `src/server/access.ts`. `pnpm start` refuses to boot while `RASPBERRY_AUTH_MODE=session`, so Raspberry cannot be half-exposed by accident. `pnpm start` binds `RASPBERRY_HOST` (default `127.0.0.1`), which is what a future reverse proxy will sit in front of.
+Session mode is implemented end to end: Google OpenID Connect followed by a six-digit emailed code, a pending-login state that cannot read pages or issue MCP credentials, hashed session tokens in an opaque cookie, idle and absolute expiry, constant-time verification, and store-level revocation. `pnpm start` refuses to boot while `RASPBERRY_AUTH_MODE=session` and any variable in `.env.example` is missing, so Raspberry cannot be half-exposed by accident. Nothing has yet exercised it against a real mail provider or a public origin. `pnpm start` binds `RASPBERRY_HOST` (default `127.0.0.1`), which is what a reverse proxy would sit in front of.
 
 Raspberry also rate limits reads and writes per process, returns an `X-Request-Id` with every API response, and exposes `GET /api/health` for service supervision. That path is exempt from the access guard and reports liveness only.
 
@@ -131,9 +131,9 @@ Local MCP ------+                         + revision check       + pages
 
 The authoritative document is schema-versioned BlockNote JSON with UUID block IDs. This release uses optimistic revisions, not live collaborative merging. Yjs remains a separate design decision requiring a migration and simultaneous browser/MCP editing tests before adoption. There are no competing canonical JSON and CRDT copies.
 
-Users, workspaces, owner/editor/viewer memberships, revisions, and retry receipts already exist in the schema. Only the seeded local owner is reachable through the current adapters. These tables do not amount to a complete user authentication or invitation system.
+Users, workspaces, owner/editor/viewer memberships, sessions, revisions, and retry receipts already exist in the schema. The seeded local owner is the only identity in local mode; session mode resolves a real Google identity and a real user row. There is no invitation flow, no account-management screen, and no multi-workspace UI.
 
-SQLite is the default for the Windows prototype. A PostgreSQL adapter uses the same service/schema and is selectable with `DATABASE_URL=postgres://...`. It is not exercised against a live PostgreSQL server in this environment. Its pilot transaction lock prioritizes consistency over parallel throughput. Merely changing the URL does not migrate existing data; migration tooling is upcoming. Schema v1 is initialized idempotently; future schema changes require versioned migrations.
+SQLite is the default for the Windows prototype. A PostgreSQL adapter uses the same service/schema and is selectable with `DATABASE_URL=postgres://...`. It is not exercised against a live PostgreSQL server in this environment, and no test runs against it, so treat it as unverified code. Its pilot transaction lock prioritizes consistency over parallel throughput. Merely changing the URL does not migrate existing data. `src/server/migrations.ts` applies versioned migrations, so schema changes are additive and recorded rather than assumed.
 
 Prototype limits: 1 MB HTTP write bodies, 2,000 blocks, ten nested block levels, 200 pages per browser listing, 30 revisions shown in history, and basic case-insensitive substring search. Storage/receipt retention and full-text indexing need work before larger datasets. The JSON document validator only accepts the block types enabled in the editor; attachments and embeds are intentionally absent.
 
@@ -150,12 +150,13 @@ Tests cover stale/concurrent edits, exact retries, cross-workspace access, viewe
 
 ## Next milestones
 
-1. Implement and test Google OpenID Connect followed by an email code, including a pending-login state that cannot read pages or issue MCP credentials.
-2. Add invitation/account management, session revocation, and stronger account protection/recovery.
-3. Exercise PostgreSQL, create migration tooling, and prepare a reproducible deployment for NikDTM on Windows.
-4. Add remote MCP with OAuth, explicit grants, audit records, and checks in all four target AI interfaces.
-5. Configure a stable domain, private administration, HTTPS ingress, encrypted off-device backups, and reboot recovery before public reachability.
-6. Add typed databases and saved table/board/calendar views.
+Raspberry is deliberately not deployed anywhere, and no milestone below is scheduled. The maintained, ordered list lives in [BACKLOG.md](BACKLOG.md).
+
+1. Add invitation and account management, plus a UI that can actually reach the session revocation that already exists in the store.
+2. Run the PostgreSQL adapter under the test suite, and prepare a reproducible deployment whenever hosting is chosen again.
+3. Add remote MCP with OAuth, explicit grants, audit records, and checks in all four target AI interfaces.
+4. Add typed databases and saved table/board/calendar views.
+5. Harden what a self-hosted sign-in needs before any public reachability: mail deliverability, TLS, encrypted off-device backups, and verified reboot recovery.
 
 See [the research plan](RASPBERRY_PLAN.md) and [security notes](SECURITY.md).
 

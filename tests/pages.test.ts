@@ -1,17 +1,17 @@
-import { test } from "node:test";
+﻿import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { openDatabase } from "../src/server/database";
+import { openMigrated } from "./schema";
 import { RaspberryService, localActor, AppError } from "../src/server/service";
 import { emptyDocument } from "../src/lib/document";
 
 const owner = localActor();
 const base = Date.parse("2026-01-01T00:00:00.000Z");
 const at = (offset: number) => new Date(base + offset).toISOString();
-async function fixture() { const db = await openDatabase("file::memory:"), service = new RaspberryService(db); await service.seed(); return { db, service }; }
+async function fixture() { const db = await openMigrated(), service = new RaspberryService(db); await service.seed(); return { db, service }; }
 
 /** Insert a row directly so a test can exceed the service row cap without hundreds of mutations. */
-function insert(db: Awaited<ReturnType<typeof openDatabase>>, row: { id: string; parentId: string | null; title: string; createdAt: string; deletedAt?: string | null; trashBatch?: string | null }) {
+function insert(db: Awaited<ReturnType<typeof openMigrated>>, row: { id: string; parentId: string | null; title: string; createdAt: string; deletedAt?: string | null; trashBatch?: string | null }) {
   return db.transaction((sql) => sql.query(
     "INSERT INTO pages (id,workspace_id,parent_id,title,icon,content,plain_text,favorite,revision,schema_version,created_at,updated_at,deleted_at,trash_batch) VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)",
     [row.id, owner.workspaceId, row.parentId, row.title, "file", JSON.stringify(emptyDocument()), row.title, 0, 1, 1, row.createdAt, row.createdAt, row.deletedAt ?? null, row.trashBatch ?? null],

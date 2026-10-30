@@ -27,30 +27,50 @@
   margin-block: 0;
 }
 
-.bn-editor [data-content-type="heading"] { --level: 23px; }
-.bn-editor [data-content-type="heading"][data-level="2"] { --level: 18px; }
-.bn-editor [data-content-type="heading"][data-level="3"] { --level: 15px; }
-.bn-editor [data-content-type="heading"][data-level="4"] { --level: 14px; }
+/* Heading sizes. BlockNote reads `--level` for the block content *and* renders
+   the text in a real <h1>–<h6>, so the two must agree; `--level-line` is the
+   leading that pairs with that size. Level 1 carries no `data-level` attribute
+   — which is why a `[data-level="1"]` selector silently never matched and the
+   visible sizes were coming from a stale read-only rule instead. */
+.bn-editor [data-content-type="heading"] { --level: var(--fs-h1); --level-line: 1.28; }
+.bn-editor [data-content-type="heading"][data-level="2"] { --level: var(--fs-h2); --level-line: 1.32; }
+.bn-editor [data-content-type="heading"][data-level="3"] { --level: var(--fs-h3); --level-line: 1.38; }
+.bn-editor [data-content-type="heading"][data-level="4"] { --level: 15.5px; --level-line: 1.42; }
 .bn-editor [data-content-type="heading"][data-level="5"],
-.bn-editor [data-content-type="heading"][data-level="6"] { --level: 13px; }
+.bn-editor [data-content-type="heading"][data-level="6"] { --level: 14px; --level-line: 1.45; }
 .bn-editor .bn-block-content[data-content-type="heading"] {
   margin-block: 0;
   padding-block: 3px;
-  line-height: 1.5;
+  line-height: var(--level-line);
 }
-.bn-editor .bn-block-outer:has(> .bn-block > .bn-block-content[data-content-type="heading"]),
-.bn-editor .bn-block-outer:has(> .bn-block > .bn-toggle-frame > .bn-toggle-slot > .bn-block-content[data-content-type="heading"]) {
+/* The browser's own <h1>…<h6> margins are what made headings sit 32px lower
+   than their block. Zero them; the block owns the rhythm. */
+.bn-editor [data-content-type="heading"] > :is(h1, h2, h3, h4, h5, h6) {
+  margin: 0;
+  font-size: var(--level);
+  line-height: var(--level-line);
+  font-weight: 600;
+  letter-spacing: -0.014em;
+}
+/* Headings keep their extra lead-in — but only when something precedes them.
+   A heading that opens the page, a callout or a column is the group's first
+   line and must not push itself down. */
+.bn-editor .bn-block-outer:has(> .bn-block > .bn-block-content[data-content-type="heading"]):not(:first-child),
+.bn-editor .bn-block-outer:has(> .bn-block > .bn-toggle-frame > .bn-toggle-slot > .bn-block-content[data-content-type="heading"]):not(:first-child) {
   margin-block: 18px 6px;
 }
 .bn-editor .bn-block-outer > .bn-block > .bn-toggle-frame:has(> .bn-toggle-slot > .bn-block-content[data-content-type="heading"]) {
   padding-top: 0;
   align-items: start;
 }
-.bn-editor .bn-toggle-frame { --toggle-line-height: 34.5px; }
-.bn-editor .bn-toggle-frame:has(> .bn-toggle-slot > [data-level="2"]) { --toggle-line-height: 27px; }
-.bn-editor .bn-toggle-frame:has(> .bn-toggle-slot > [data-level="3"]) { --toggle-line-height: 22.5px; }
-.bn-editor .bn-toggle-frame:has(> .bn-toggle-slot > [data-level="4"]) { --toggle-line-height: 21px; }
-.bn-editor .bn-toggle-frame:has(> .bn-toggle-slot > [data-level="5"], > .bn-toggle-slot > [data-level="6"]) { --toggle-line-height: 19.5px; }
+/* The toggle arrow is a fixed-width button beside the first line of a heading,
+   so its height has to equal that line's height or it floats above the text.
+   Derive it from the same two numbers as the type instead of hand-computing. */
+.bn-editor .bn-toggle-frame { --toggle-line-height: calc(var(--fs-h1) * 1.28); }
+.bn-editor .bn-toggle-frame:has(> .bn-toggle-slot > [data-level="2"]) { --toggle-line-height: calc(var(--fs-h2) * 1.32); }
+.bn-editor .bn-toggle-frame:has(> .bn-toggle-slot > [data-level="3"]) { --toggle-line-height: calc(var(--fs-h3) * 1.38); }
+.bn-editor .bn-toggle-frame:has(> .bn-toggle-slot > [data-level="4"]) { --toggle-line-height: calc(15.5px * 1.42); }
+.bn-editor .bn-toggle-frame:has(> .bn-toggle-slot > [data-level="5"], > .bn-toggle-slot > [data-level="6"]) { --toggle-line-height: calc(14px * 1.45); }
 .bn-editor .bn-toggle-button {
   display: grid;
   place-items: center;
@@ -63,9 +83,12 @@
 }
 .bn-editor .bn-toggle-button[aria-expanded="true"] > svg { transform: rotate(90deg); }
 
+/* The quote box was 6px/10px with square corners, so the text crowded the
+   border and a coloured quote read as a stray rectangle. */
 .bn-editor .bn-block-content[data-content-type="quote"] {
   margin-block: 0;
-  padding: 6px 10px;
+  padding: 10px 14px;
+  border-radius: var(--radius);
 }
 .bn-editor .bn-block-outer:has(> .bn-block > [data-content-type="quote"]) { margin-block: 6px; }
 
@@ -79,9 +102,341 @@
   font-size: 21px;
   line-height: 1;
   padding: 0;
+  /* The block side menu is positioned absolutely over this gutter. Paint the
+     emoji above it so a click always lands on the icon, whichever block the
+     pointer came from. */
+  position: relative;
+  z-index: 2;
 }
-.bn-editor .callout-body > [data-node-view-content-react] > .bn-block-outer:first-child,
-.bn-editor .raspberry-column > [data-node-view-content-react] > .bn-block-outer:first-child { margin-top: 0; }
-.bn-editor .raspberry-callout:has(.callout-body > [data-node-view-content-react] > .bn-block-outer:first-child [data-content-type="heading"]) { --callout-first-line: 40.5px; }
-.bn-editor .raspberry-callout:has(.callout-body > [data-node-view-content-react] > .bn-block-outer:first-child [data-content-type="heading"][data-level="2"]) { --callout-first-line: 33px; }
-.bn-editor .raspberry-callout:has(.callout-body > [data-node-view-content-react] > .bn-block-outer:first-child [data-content-type="heading"][data-level="3"]) { --callout-first-line: 28.5px; }
+/* The first child of a callout never carries a margin — the callout's own
+   padding is the only space above it. The reset lives in `globals.css` next to
+   the rest of the block rhythm, where it can out-specify the heading rule. */
+.bn-editor .raspberry-callout:has(.callout-body > div > .bn-block-outer:first-child [data-content-type="heading"]:not([data-level])) { --callout-first-line: calc(var(--fs-h1) * 1.28); }
+.bn-editor .raspberry-callout:has(.callout-body > div > .bn-block-outer:first-child [data-content-type="heading"][data-level="2"]) { --callout-first-line: calc(var(--fs-h2) * 1.32); }
+.bn-editor .raspberry-callout:has(.callout-body > div > .bn-block-outer:first-child [data-content-type="heading"][data-level="3"]) { --callout-first-line: calc(var(--fs-h3) * 1.38); }
+
+/* ---------- media blocks: image, video, audio, file (B26) ---------- */
+
+/* BlockNote paints a 4px radius and no ceiling on width. On a 320px phone a
+   resized 900px image would then scroll the page sideways, so the ceiling goes
+   on the wrapper, which is the element that carries the inline width.
+   No `overflow: hidden` here: the resize handles are children of this element and
+   are positioned against its edges. */
+.bn-editor .bn-visual-media-wrapper { max-width: 100%; }
+.bn-editor .bn-visual-media { max-width: 100%; height: auto; display: block; border-radius: var(--radius); }
+.bn-editor .bn-visual-media-wrapper:hover .bn-resize-handle { opacity: 1; }
+/* BlockNote's own stylesheet ships these at full opacity. They were reading as two
+   permanent pink bars beside every image and embed, so they now appear on hover
+   only — a resize affordance is a hint, not decoration. */
+.bn-editor .bn-resize-handle {
+  width: 6px;
+  border-radius: 999px;
+  background: var(--hairline-strong);
+  opacity: 0;
+  transition: opacity var(--t-hover) var(--spring-soft), background-color var(--t-hover) var(--spring-soft);
+}
+.bn-editor .bn-resize-handle:hover { background: var(--accent); }
+
+/* An audio block is a player, not a slab: the browser's own control is full-bleed
+   by default, which made a 0.5s tone look like a section divider.
+   The controls keep the browser's own colours. Setting `color-scheme: dark` here
+   was tried and measured — Chrome still painted them light, so the declaration was
+   removed rather than left in place looking like it did something. */
+.bn-editor .bn-file-block-content-wrapper audio,
+.bn-editor .bn-visual-media-wrapper audio { width: 100%; max-width: 420px; height: 40px; }
+
+/* A provider embed has no intrinsic size, so it needs a ratio box of its own. */
+.bn-editor .raspberry-embed { position: relative; width: 100%; aspect-ratio: 16 / 9; background: var(--raised); border-radius: var(--radius); overflow: hidden; }
+.bn-editor .raspberry-embed-frame { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; display: block; }
+
+/* The caption is a sentence about the block above it, not part of the document
+   body — it takes secondary colour and the smaller measure. */
+.bn-editor .bn-file-caption,
+.bn-editor .bn-block-content figcaption { font-size: 12.5px; color: var(--text-3); padding-top: 6px; }
+.bn-editor .bn-file-caption:empty { display: none; }
+
+/* File blocks are the only media type with no preview: they are a row of
+   chrome. Give that row the same corner and hover language as a sidebar item. */
+.bn-editor .bn-file-block-content-wrapper { display: flex; }
+.bn-editor .bn-file-block-content-wrapper > div[class*="file"] { max-width: 100%; }
+.bn-editor .bn-add-file-button,
+.bn-editor .bn-file-block-content-wrapper > a,
+.bn-editor .bn-file-block-content-wrapper > button {
+  border-radius: var(--radius);
+  transition: background-color var(--t-hover) var(--spring-soft), border-color var(--t-hover) var(--spring-soft);
+}
+.bn-editor .bn-add-file-button { border-color: var(--hairline); padding: 14px 16px; }
+.bn-editor .bn-add-file-button:hover { background: var(--hover); border-color: var(--hairline-strong); }
+.bn-editor .bn-add-file-button-text { color: var(--text-2); }
+
+/* Media sits where a paragraph would, so it takes the paragraph's block rhythm
+   rather than adding its own. */
+.bn-editor .bn-block-outer:has(> .bn-block > [data-content-type="image"]),
+.bn-editor .bn-block-outer:has(> .bn-block > [data-content-type="video"]),
+.bn-editor .bn-block-outer:has(> .bn-block > [data-content-type="audio"]),
+.bn-editor .bn-block-outer:has(> .bn-block > [data-content-type="file"]) { margin-block: 6px; }
+
+/* ---------- object selection (B35) ---------- */
+
+/* BlockNote paints its block selection with a hardcoded blue overlay on the
+   block's own ::after. The wishlist asks for the primary colour, so this
+   replaces those two declarations rather than stacking a second layer on top —
+   two washes composited give a third colour that is neither one, and it would
+   shift every time the palette changed.
+
+   Scoped to the selection class alone. `[data-drop-target=true]` shares the
+   original rule but means "you are about to drop here", which is a different
+   statement and must not be tinted as a selection. */
+.bn-editor .bn-block-content.ProseMirror-selectednode > ::after,
+.bn-editor .ProseMirror-selectednode > .bn-block-content > ::after {
+  background-color: var(--accent-soft);
+  box-shadow: inset 0 0 0 2px var(--accent-line);
+}
+
+/* The menu is built from the app's own `.menu-item` row spec (shell.css), so the
+   six dots open the same menu as the page rows and the tab strip rather than a
+   third dialect of menu that happens to live inside the editor. */
+.bn-mantine .bn-drag-handle-menu:has(.obj-menu) {
+  min-width: 272px;
+  padding: 4px;
+}
+.obj-menu { display: flex; flex-direction: column; gap: 1px; }
+
+/* 90 = quarter turn. Arrivals decelerate on `--t-move`; the arrow has to share
+   the panel's clock or it lands before the panel it is describing. */
+.obj-chevron {
+  margin-inline-start: auto;
+  opacity: 0.5;
+  transition: transform var(--t-move) var(--spring-soft);
+}
+.obj-chevron.is-open { transform: rotate(90deg); }
+
+/* `:not([hidden])` rather than a bare `display` on `.obj-panel`: an unconditional
+   `display: grid` outranks the UA sheet's `[hidden] { display: none }`, and the
+   panel would then be visible while claiming to be hidden. */
+.obj-panel { padding: 2px 4px 8px; }
+.obj-panel:not([hidden]) { display: grid; gap: 7px; }
+
+.obj-panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+}
+
+/* A compact segmented switch, not the settings one: that control is 30px with
+   padded cells because it sits on a dialog panel. Inside a menu row it would be
+   taller than the rows it belongs to. */
+.obj-segmented {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: var(--radius-sm);
+  background: var(--hover);
+}
+.obj-segmented button {
+  height: 20px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+  font: inherit;
+  font-size: var(--fs-micro);
+  cursor: pointer;
+  transition: background-color var(--t-tap) linear, color var(--t-tap) linear;
+}
+.obj-segmented button.is-on {
+  background: var(--elevated);
+  color: var(--text);
+  box-shadow: var(--shadow-sm);
+}
+
+.obj-reset {
+  height: 20px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+  font: inherit;
+  font-size: var(--fs-micro);
+  cursor: pointer;
+  transition: background-color var(--t-tap) linear, color var(--t-tap) linear;
+}
+.obj-reset:hover:not(:disabled) { background: var(--hover-strong); color: var(--text); }
+.obj-reset:disabled { opacity: 0.45; cursor: default; }
+
+/* Nine chips across a 272px menu, so the same strip the settings surface uses
+   still fits without wrapping. Chips lose 2px of height to the menu context —
+   24 was tuned for a dialog panel with room to breathe. */
+.obj-panel .swatches { grid-template-columns: repeat(9, minmax(0, 1fr)); gap: 4px; }
+.obj-panel .swatch { height: 22px; border-radius: 5px; }
+.obj-panel .swatch:hover { transform: none; }
+
+.obj-turns { grid-template-columns: 1fr 1fr; gap: 2px; }
+.obj-turn {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  height: 26px;
+  padding: 0 6px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: var(--fs-ui);
+  text-align: left;
+  cursor: pointer;
+  transition: background-color var(--t-tap) linear, color var(--t-tap) linear;
+}
+.obj-turn svg { opacity: 0.8; flex: 0 0 auto; }
+.obj-turn:hover:not(:disabled) { background: var(--hover-strong); color: var(--text); }
+.obj-turn.is-on { background: var(--accent-soft); color: var(--accent); }
+.obj-turn:disabled { opacity: 0.4; cursor: default; }
+
+.obj-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  padding: 2px 6px;
+  color: var(--text-3);
+  font-size: var(--fs-micro);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .obj-chevron { transition: none; }
+}
+
+
+/* The owned selection (see editor/object-selection.tsx) is painted by a
+   generated stylesheet, not by an attribute on the block. BlockNote rebuilds its
+   block DOM whenever the editor re-renders, and an attribute written onto one of
+   those nodes is attached to a detached element a frame later — measured, twice.
+   A rule outlives the node it describes, so the rule *is* the state.
+
+   The rule itself is generated rather than living here, and that is not laziness:
+   `.bn-block-content::after` is already BlockNote's placeholder slot (and
+   `::before` is its own anchor). A base rule that painted `::after` for every
+   block — even with `display: none` — silently hid the ghost text on all eight
+   empty blocks, and one that declared `content` unconditionally would have
+   fought the placeholder for the same slot. Only selected blocks get a rule, so
+   the slot stays BlockNote's on every other block.
+
+   Negative inline inset reaches into the gutter the way Notion's does: the text
+   block's own box is narrower than the selection a user expects to see. */
+
+/* ---------- a layout frame's own grip (B36) ---------- */
+
+/* The pair sits in the same gutter cell BlockNote's own side menu uses, at the
+   same size: 39px to the left of the block (right edge flush with it), 30px
+   tall, two buttons of 19.5px, revealed on hover. That is measured, not
+   chosen — at 1400px the editor starts at 502 and BlockNote's own pair occupies
+   463–502. The page leaves exactly that much room at 390px too (editor at 24,
+   the pair at 5), so anything wider falls off a phone and anything narrower
+   collides with the emoji.
+
+   Being flush matters more than it sounds: the handle, the + and the text all
+   share one right edge, which is what makes the three read as one column.
+
+   It is absolutely positioned because a callout is one line tall: a grip stacked
+   under the emoji inside the gutter would push every callout 30px taller for a
+   control that only exists on hover. Hover survives the pointer leaving the
+   callout's box because this is a *descendant* of the callout — `:hover` follows
+   the DOM, not the geometry, which is also why the gutter is a safe place to put
+   it. */
+.bn-editor .raspberry-callout { position: relative; }
+
+.frame-anchor {
+  position: absolute;
+  /* The pair is 30px tall and the emoji is 28, so they only line up if the
+     pair's *centre* sits on the emoji's centre — 1px of overhang above and
+     below. 25px is that centre measured from the padding box: 12px of callout
+     padding + 14px (half the emoji) − 1px, because the frame's hairline border
+     puts the padding box 1px inside the border box. Measured in the browser
+     (emoji centre 321, pair centre 321), not derived on paper.
+     `translateY(-50%)` is what turns a centre into a top edge; without it the
+     top edge lands there and the grip sits 15px low. */
+  inset-block-start: 25px;
+  transform: translateY(-50%);
+  /* -40px, not -39: the same hairline border shifts the reference box. The
+     pair's right edge has to be flush with the callout's left edge, because
+     that is where BlockNote's own pair ends on every other block (measured 502
+     and 502). */
+  inset-inline-start: -40px;
+  display: flex;
+  width: 39px;
+  height: 30px;
+}
+
+/* The pair laid out by its host instead of floating on a block's left edge — a database
+   row hangs it in the page margin, which means the *row* owns the position. Only the
+   positioning changes: the box is still 39x30, still two `flex: 1 1 0` buttons, still
+   the same hover, because nothing else is re-declared here. */
+.frame-anchor--inline {
+  position: static;
+  inset: auto;
+  transform: none;
+}
+
+.frame-grip {
+  flex: 1 1 0;
+  display: grid;
+  place-items: center;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-3);
+  opacity: 0;
+  cursor: pointer;
+  transition: opacity var(--t-tap) linear, color var(--t-tap) linear, background var(--t-tap) linear;
+}
+.raspberry-callout:hover .frame-grip,
+.frame-anchor:hover .frame-grip,
+.frame-grip:focus-visible,
+.frame-grip.is-open { opacity: 1; }
+.frame-grip:hover { background: var(--hover-strong); color: var(--text); }
+/* No hover to reveal it with, so it is simply there. */
+@media (hover: none) { .frame-grip { opacity: 1; } }
+
+/* `:has` on the frame that owns an open menu, rather than a standing z-index on
+   every callout: the panel has to clear the blocks that follow it, and lifting
+   every callout would make each one a stacking context for no reason. */
+.raspberry-callout:has(.frame-menu) { z-index: 30; }
+
+/* Opens where BlockNote's own drag menu opens: 8px to the right of the pair,
+   vertically centred on it. The earlier version opened *below* the grip, which
+   made the same menu arrive in two different places on the same page — the one
+   thing a menu must never do. Measured from the native menu: left edge flush
+   with the handle's right edge + 8, centre on the handle's centre.
+
+   Chrome matches too (bg `--elevated` = #201e1e, radius 8, 4px pad, no border),
+   because the panel is the same panel. */
+.frame-menu {
+  position: absolute;
+  inset-block-start: 50%;
+  inset-inline-start: calc(100% + 8px);
+  z-index: 1;
+  min-width: 272px;
+  padding: 4px;
+  background: var(--elevated);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  transform: translateY(-50%);
+  animation: frame-menu-in 160ms var(--spring) both;
+}
+
+/* `layer-in` ends on `transform: none`, which would throw away the centring at
+   the exact frame the animation finishes, so the same motion is expressed here
+   with the -50% baked into both ends. */
+@keyframes frame-menu-in {
+  from { opacity: 0; transform: translateY(calc(-50% - 4px)) scale(0.985); }
+  to { opacity: 1; transform: translateY(-50%); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .frame-menu { animation: none; }
+}
+
+

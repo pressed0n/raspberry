@@ -1,0 +1,1270 @@
+/* Raspberry — database blocks (B38)
+   ---------------------------------------------------------------------------
+   Everything here uses the tokens in `theme.css`, so a database follows the palette
+   like every other block does. The one rule worth reading twice is `.db-block`'s
+   `contenteditable` behaviour: this block lives inside BlockNote's editor, so the
+   text inside it must not be reachable by the editor's caret — otherwise pressing
+   an arrow key in a cell would walk into the block's own (nonexistent) text. */
+
+.db-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 4px 0;
+  padding: 4px 0 8px;
+  /* The block's UI is a widget, not text. BlockNote still asks whether the block is
+     editable, so this keeps selection and caret out of the controls. */
+  user-select: none;
+  /* The block is a flex *item* inside BlockNote's `.bn-block-content`, which is itself
+     a flex container. Without this it is content-sized: the table shrinks to the width
+     of its header and the database reads as a fragment floating in the page instead of
+     a table in the column. `min-width: 0` keeps a wide table scrolling inside
+     `.db-table-wrap` rather than pushing the editor column wider. */
+  flex: 1 1 auto;
+  width: 100%;
+  min-width: 0;
+}
+
+/* The row gutter's three numbers. Declared on `:root`, not on `.db-block`, because the
+   page's own margin now reads one of them: the shelf hangs outside the table, so the page
+   must always have at least this much margin to hang it in.
+
+     --db-shelf   what the controls occupy (they hang outside the table's box)
+     --db-borrow  how much page margin the wrap borrows to give them that room
+     --db-col     the gutter column's own width — always 0, at every width
+
+   All three are constant at every width. There is no breakpoint that changes them: a
+   column here indents the grid, and an inset on the first cell moves the text under the
+   buttons. Both are what the owner asked to stop. */
+:root {
+  --db-shelf: 60px;
+  --db-borrow: 60px;
+  --db-col: 0px;
+}
+
+/* The page pays for the shelf, not the table (B40g).
+   ---------------------------------------------------------------------------
+   Below the measure's own width the page has exactly `--s5` (24px) of margin, against a
+   60px shelf. The old answer was to dock the controls inside the row and inset the Name
+   text by 58px — twice rejected. The owner's instruction is explicit: "if those three
+   elements dont fit on smaller desktop screens we should increase margin/padding
+   globally on left right to solve this, not indent it in the table."
+
+   So the page grows a margin and the grid keeps its edge. `:has()` rather than every
+   document, because a page with no database has no shelf to pay for.
+
+   The box is widened by the *difference* so the measure does not move: `.doc` is
+   `border-box`, so raising its inline padding alone would narrow the text column from
+   708 to 588. It is 708 wide before and after — only the margins change. */
+.doc:has(.db-block) {
+  max-width: calc(var(--measure) + 2 * (var(--db-shelf) - var(--s5)));
+  padding-inline: var(--db-shelf);
+}
+
+/* ---------------------------------------------------------------------------
+   Title
+   --------------------------------------------------------------------------- */
+.db-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+}
+
+.db-title {
+  flex: 1 1 auto;
+  min-width: 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: 500 var(--fs-ui) / 1.4 var(--font-ui);
+  padding: 2px 4px;
+  /* No icon beside the name any more (B40g), so the name itself is what has to sit on the
+     block's left edge. The 4px inset stays as the hover shape's inset and is taken back
+     here, so the text starts on the rule and the highlight bleeds into the margin — the
+     same trade `.db-new-row` makes, one control down. */
+  margin-inline-start: -4px;
+  border-radius: 4px;
+}
+
+.db-title:hover { background: var(--hover); }
+.db-title:focus { outline: none; background: var(--hover-strong); }
+
+.db-saving {
+  flex: 0 0 auto;
+  font-size: var(--fs-micro);
+  color: var(--palette-gray-text);
+}
+
+/* ---------------------------------------------------------------------------
+   View tabs
+   --------------------------------------------------------------------------- */
+.db-tabs {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  overflow-x: auto;
+  scrollbar-width: none;
+  border-bottom: 1px solid var(--hairline);
+}
+
+.db-tabs::-webkit-scrollbar { display: none; }
+
+.db-tab {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  color: var(--palette-gray-text);
+  font: 500 var(--fs-ui) / 1 var(--font-ui);
+  padding: 7px 9px;
+  border-radius: 5px 5px 0 0;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+}
+
+.db-tab:hover { background: var(--hover); color: var(--text); }
+
+.db-tab-active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+/* ---------------------------------------------------------------------------
+   Table
+   --------------------------------------------------------------------------- */
+.db-table-wrap {
+  /* A wide table scrolls on its own axis; the page must never scroll sideways
+     because a database grew a column. */
+  overflow-x: auto;
+  /* No frame of its own. A database table in a document is a grid of rules, not a
+     card: the wrapper's 1px border + 6px radius drew a rounded box around it that
+     nothing else on the page has, and it drew it *outside* the cells' own border —
+     the same rectangle twice, one pixel apart. */
+}
+
+.db-table {
+  border-collapse: collapse;
+  table-layout: fixed;
+  min-width: calc(100% - var(--db-shelf));
+  font-size: var(--fs-ui);
+}
+
+/* Cells keep their own `overflow: hidden` for truncation (`.db-cell`); the table itself
+   must not clip, or the row gutter — which hangs to the *left* of the table's own box —
+   is painted into nothing. This was invisible for a whole round of "the controls are
+   there, the geometry is right, the opacity is 1": correct DOM, no pixels.
+
+   Scoped, and not on `.db-table`, because the editor's own `.bn-editor table` (0,1,1)
+   beats a single class (0,1,0) — the same trap the type scale further down documents. */
+.db-block .db-table { overflow: visible; }
+
+.db-th {
+  /* `position: relative` comes from the resize-handle rule further down — the header was
+     declared `sticky` here and silently made `relative` there, which is why it never
+     stuck and why a background on it would have been a band over scrolling rows. One
+     declaration of an element's positioning; it lives with the handle that needs it. */
+  z-index: 1;
+  /* No background (B40g). It was `--surface`, which in the dark palette is a near-black
+     band: the header read as a toolbar bolted onto the table rather than as its first
+     row. A table has one surface — the page's — and its rules do the separating. */
+  text-align: left;
+  font-weight: 500;
+  /* B40h — the colour of the sidebar's own rows (`--text-2`, `#a6a29c`), because a column
+     title is the same kind of thing a page row is: a label you read, not content you read.
+     It was `--palette-gray-text` (`#c1beb9`), a step brighter than anything in the sidebar
+     and the brightest text on the page. */
+  color: var(--text-2);
+  padding: 0;
+  height: 32px;
+  border-right: 1px solid var(--hairline);
+  border-bottom: 1px solid var(--hairline);
+}
+
+.db-th:last-child { border-right: 0; }
+
+/* The Name column is the first column, not a heading (B40g). It used to be `--text`
+   while its neighbours were `--palette-gray-text`, so the one column whose label is least
+   in need of emphasis was the brightest thing in the header. Column labels are all
+   labels: same weight, same colour, one visual voice. */
+
+.db-th-label {
+  display: block;
+  padding: 0 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The width comes from the table's `<col>` (see `ADD_COLUMN` in `table-view.tsx`), not
+   from here: two statements of one width drift the moment one is edited. */
+.db-th-add { text-align: left; }
+
+/* `+ Add property` — a named control, not a glyph slot. The glyph and the words are one
+   button, so the whole thing is the target; the text is the label people look for and the
+   `+` is the affordance that says what it will do. */
+.db-add-property {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 6px;
+  width: 100%;
+  height: 31px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  /* Same label grey as the column titles it sits beside, and the sidebar rows behind them. */
+  color: var(--text-2);
+  font: inherit;
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+.db-add-property:hover { background: var(--hover-strong); color: var(--text); }
+
+/* `:not()` chains rather than a `.db-data` marker class, because these rules all mean
+   "the cells that are the table": the gutter, the `+` and the filler are cells
+   structurally and none of them is a column. Every rule that touches borders, fills or
+   radii has to say so, or the ghost cells inherit chrome they must not have.
+
+   The divider is the one exception, and deliberately so: a row divider that stops at the
+   last data column leaves the `+` column and the filler looking like a separate, empty,
+   half-ruled table hanging off the right. It runs the full width of the table — every
+   cell except the zero-wide gutter, whose contents are not part of the grid at all. */
+.db-row + .db-row .db-cell:not(.db-gutter) { border-top: 1px solid var(--hairline); }
+.db-row:hover .db-cell:not(.db-gutter):not(.db-cell-add):not(.db-cell-filler) { background: var(--hover); }
+.db-row-open { cursor: pointer; }
+
+/* ---------------------------------------------------------------------------
+   The row gutter: add, hold, tick
+   ---------------------------------------------------------------------------
+   A database row is an object like any other in the document, so it renders what every
+   other object renders: `FrameAnchor` — the same `+`-then-grip pair, 39x30, two
+   `flex: 1 1 0` buttons, the same hover, the same glyphs. Not a second pair built to
+   match it. Plus the checkbox that multi-selection needs, to its right.
+
+   The pair hangs in the page margin, OUTSIDE the table's own box. It used to be the
+   table's first column, which indented every column by 60px: the grid started at 551
+   while the view tab above it and `+ New page` below it started at 491. A bordered empty
+   band ran the height of the table. That is what "the table is not aligned" was.
+
+   Two numbers, and every rule below reads them rather than restating them:
+     --db-borrow  how much page margin the wrap borrows for them (60px, 0 below 860px)
+     --db-col     the gutter column's own width                (0, at every width)
+   --------------------------------------------------------------------------- */
+
+/* The wrap clips (`overflow-x: auto`), so the shelf needs borrowed room: the wrap grows
+   leftwards by exactly the shelf and the table is pushed back by the same amount. Net,
+   the table's left edge lands on the content edge and the controls sit in the space the
+   wrap borrowed. */
+.db-table-wrap {
+  margin-inline-start: calc(0px - var(--db-borrow));
+  width: calc(100% + var(--db-borrow));
+}
+
+/* `min-width` follows the shift. `100%` here would measure the borrowed room and make the
+   table hang past its own right edge. */
+.db-table {
+  margin-inline-start: var(--db-borrow);
+  min-width: calc(100% - var(--db-borrow));
+}
+
+/* Zero-wide at every width, so nothing of it is drawn: no borders, no fill, no inset. The
+   cells already carry the rules and the gutter's job is to be space. It stays a cell
+   (rather than being hoisted out of the table) because a cell gives the shelf the row's
+   vertical centre for free — no measured row heights, no observer. */
+.db-block .db-table .db-gutter {
+  position: relative;
+  width: var(--db-col);
+  padding: 0;
+  border: 0;
+  background: transparent;
+  white-space: nowrap;
+  vertical-align: middle;
+  /* `.db-cell` clips for truncation; this cell holds nothing in flow and its whole
+     content is the shelf outside it, so clipping it would delete the controls. */
+  overflow: visible;
+}
+
+/* Absolute against the zero-wide cell: `inset-inline-end: 0` pins the shelf's right edge
+   to the cell's right edge, and a fixed width grows it leftwards — into the margin.
+   Vertically it fills the row, which is what keeps the pair centred on the row without
+   measuring a single row height.
+
+   60 = 4 (inset) + 39 (the pair) + 2 (gap) + 15 (the tick). */
+.db-gutter-inner {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-end: 0;
+  width: var(--db-shelf);
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 2px;
+  padding-inline-end: 4px;
+  /* The shelf must sit above the row's own cells, not beside them in paint order. On a
+     wide screen nothing overlaps and this changes nothing; below 860px the shelf docks
+     *inside* the Name cell's inset, and `.db-name-cell` is `position: relative`, so
+     without this the cell — later in the DOM — swallowed every click meant for the grip.
+     The buttons were visible, hoverable-looking and completely inert. */
+  z-index: 1;
+}
+
+/* The pair is a fixed-size control, not a fluid one. A column in a `table-layout: fixed`
+   table with fractional widths hands its cells fractional widths — which silently shrank
+   the pair to 38.5 and each button to 19.25 before this rule. A shared component must
+   render at the size it was designed at in every host; the 0.5px comes out of the gap
+   instead. */
+.db-gutter-inner .frame-anchor { flex: 0 0 auto; }
+
+/* Present at all times, visible only when the row is pointed at, focused, or ticked. A
+   control that exists *only* while hovered cannot be reached from a keyboard, which is
+   why these are hidden with opacity rather than left out of the DOM.
+
+   The pair needs no rule: `.frame-grip` is already `opacity: 0` and already reveals on
+   `.frame-anchor:hover` / `:focus-visible`. Only the row-wide reveal is added, since the
+   pair is 39px of a 60px shelf and the rest of the row should work too.
+
+   Scoped to `.db-gutter` on purpose. `.db-check` is also the class a *checkbox property's
+   value* uses, and that value is data: hiding it until hover meant a Checkbox column
+   looked empty on every row until you pointed at one. Same class, two jobs, so the
+   hover rule names the place instead of the class. */
+.db-gutter .db-check {
+  opacity: 0;
+  transition: opacity 100ms ease;
+}
+
+.db-row:hover .frame-grip,
+.db-row:focus-within .frame-grip,
+.db-row:hover .db-check,
+.db-row:focus-within .db-check,
+.db-row.is-selected .db-check,
+.db-th:hover .db-check-all,
+.db-check-all:focus-visible { opacity: 1; }
+
+/* A touch screen has no hover, so a control that only appears on hover does not appear.
+   The tick is the database's own control and its reveal is the database's business; the
+   grip is `FrameAnchor`'s, and `.frame-grip` already reveals itself under `(hover: none)`
+   in `editor-blocks.css`. Restating it here would be the host restyling the shared
+   component — the exact drift `tests/frame-anchor.test.ts` exists to catch.
+
+   This is the *only* thing a coarse pointer changes: the geometry is identical at every
+   width, because the shelf hangs outside the table and the page pays for it. (Below 860px
+   the controls used to dock inside the row and inset the Name text by 58px; on a phone
+   that made room for three buttons that could not be tapped.) Declared after the reveal
+   rules because it has to beat them: same specificity, so order decides. */
+@media (hover: none) {
+  .db-gutter .db-check { opacity: 1; }
+}
+
+/* Only what `.frame-grip` does not already answer: the cursor. Its hover, its radius, its
+   colour lift and its transition are the shared ones — a copy that chose its own hover
+   would look like a different control the moment the pointer arrived. */
+.db-grip { cursor: grab; }
+.db-grip:active { cursor: grabbing; }
+
+/* A sorted table has no stored order for a drag to change. The grip stays — its absence
+   would read as "this row cannot be moved" — but it says why instead of lying. */
+.db-grip.is-inert { cursor: default; }
+
+/* One definition. This file used to declare `.db-check` twice — a 13px native box here
+   and a 15px framed box 300 lines down — so the later one silently won and the "13px
+   checkbox" never existed. `appearance: none` is what makes the tick ours; without it
+   the browser paints its own control inside our border.
+
+   Three states, because the same box is drawn by two different elements: the gutter's
+   select-all and per-row ticks are real `<input type=checkbox>`, and a checkbox
+   *property's* value is a `<button role="checkbox">` (it has to be a button so a click
+   can commit through the cell). `:checked` covers the first, `[aria-checked]` the
+   second, `:indeterminate` the third. */
+.db-check {
+  flex: 0 0 15px;
+  display: inline-grid;
+  place-items: center;
+  width: 15px;
+  height: 15px;
+  margin: 0;
+  padding: 0;
+  appearance: none;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 3px;
+  background: transparent;
+  cursor: pointer;
+}
+
+.db-check:checked,
+.db-check:indeterminate,
+.db-check[aria-checked="true"] {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+
+.db-check:checked::after,
+.db-check[aria-checked="true"]::after {
+  content: "✓";
+  font-size: 10px;
+  line-height: 1;
+  color: var(--accent-text, #fff);
+}
+
+/* Select-all with only some rows ticked. The ref sets `indeterminate` in the DOM, and a
+   property cannot be expressed in CSS — but it can be *drawn* in CSS, which is the
+   difference between "some are selected" and an empty box that lies. */
+.db-check:indeterminate::after {
+  content: "";
+  width: 7px;
+  height: 1.5px;
+  border-radius: 1px;
+  background: var(--accent-text, #fff);
+}
+
+.db-check:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
+
+/* A checkbox that is a *value* sits where every other value in the column sits: one
+   inset from the cell's left edge. In the gutter it is one member of a flex row and the
+   flex row positions it, so this rule names the cell rather than the box. */
+.db-cell > .db-check { margin-left: 10px; }
+
+
+/* The row being dragged fades, and the row it will land above grows a line. A drag with
+   no drop indicator is a gesture you have to guess the result of. */
+.db-row.is-dragging { opacity: 0.4; }
+.db-row.is-drop-over .db-cell:not(.db-gutter):not(.db-cell-add):not(.db-cell-filler) { box-shadow: inset 0 2px 0 var(--accent); }
+.db-row.is-selected .db-cell:not(.db-gutter):not(.db-cell-add):not(.db-cell-filler) { background: var(--hover-strong); }
+
+/* `Open` — a row is a page, and a page that can only be opened by double-clicking the
+   right pixel is a page most people will never open. It sits at the end of the name and
+   takes no clicks while it is invisible. */
+.db-open {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  z-index: 1;
+  transform: translateY(-50%);
+  padding: 2px 7px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text);
+  font: 500 var(--fs-micro) / 1.4 var(--font-ui);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+
+.db-row:hover .db-open,
+.db-row:focus-within .db-open { opacity: 1; pointer-events: auto; }
+.db-open:hover { background: var(--hover-strong); }
+
+/* Selection is ephemeral, so the count is what makes it legible — and it is where a
+   bulk action will live when there is one to offer. */
+.db-selected {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 1px;
+  color: var(--palette-gray-text);
+  font-size: var(--fs-micro);
+}
+
+.db-selected-clear {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--accent);
+  font: inherit;
+  cursor: pointer;
+}
+
+.db-selected-clear:hover { text-decoration: underline; }
+
+/* The cell is the box. Its padding is zero and the control inside holds the inset, so
+   hovering a cell outlines the *cell* rather than a smaller box floating inside it. The
+   old shape — td padding 10px + input padding 4px + `margin-left: -4px` to hide the seam —
+   is exactly the "interactable container with padding, inside a cell" the wishlist listed. */
+.db-cell {
+  height: 32px;
+  padding: 0;
+  border-right: 1px solid var(--hairline);
+  color: var(--text);
+  overflow: hidden;
+}
+
+.db-cell:last-child { border-right: 0; }
+
+/* Read-only and empty values are not controls, so they carry their own inset in place of
+   `.db-cell-input`'s. Without this they would touch the cell's left border. */
+.db-cell-text,
+.db-cell-readonly,
+.db-cell-empty {
+  display: block;
+  padding: 0 10px;
+  line-height: 31px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-cell-name .db-cell-text { font-weight: 500; }
+
+/* The entry's icon sits inline, immediately before its name, and is the thing you click
+   to change it. It is always present — rows start on the default page glyph, same as the
+   sidebar — and `none` renders a placeholder that only appears on hover. */
+.db-name-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  height: 32px;
+  padding-left: 7px;
+}
+
+/* No left inset on the name itself, and that number is load-bearing.
+   ---------------------------------------------------------------------------
+   The header's label is `padding: 0 10px` + a 14px icon + a 5px gap, so its text
+   starts at 29px. Here the icon box is 20px wide at 7px, so the text starts at 27 + 2
+   — exactly 29 once the text's own left padding is zero. It was 6px before, which put
+   every page name 6px right of the column title above it: the icons lined up and the
+   words did not, which is precisely the misalignment this fixes. */
+.db-name-cell .db-cell-text { padding: 0 6px 0 0; }
+.db-name-cell .db-cell-input { flex: 1 1 auto; width: auto; min-width: 0; padding: 0 6px 0 0; }
+
+.db-entry-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--palette-gray-text);
+  cursor: pointer;
+}
+
+.db-entry-icon:hover { background: var(--hover-strong); color: var(--text); }
+.db-entry-icon.is-empty { opacity: 0; }
+.db-row:hover .db-entry-icon.is-empty,
+.db-entry-icon.is-empty:focus-visible { opacity: 1; }
+
+/* A compact button. It used to be `width: 100%` with a top border, which made a 90px
+   label look like a section header spanning a 900px table. It sits where the next row
+   would be and hugs its own contents, because that is where people look for "one more". */
+.db-new-row {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  width: auto;
+  /* A flex *item* in `.db-block`'s column, so it would stretch to the table's width and
+     turn a 90px label into a 660px target. It is a sibling of the scroll wrapper now, not
+     a child of it, which is why this is needed here and was not before. */
+  align-self: flex-start;
+  margin: 3px 0 1px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-2);
+  font: 400 var(--fs-ui) / 1 var(--font-ui);
+  /* B40h — this block has one left rhythm, and this button was the exception to it.
+     The old rule was `padding: 6px 9px` with `margin-inline-start: -9px`, and its comment
+     claimed the shape "extends left of the grid by nothing". It did the opposite: the
+     negative margin cancelled the padding, so the *shape* started 9px left of the grid
+     while the *contents* started on it. On hover you saw a highlight hanging out over the
+     page margin — a chip floating beside the table rather than the place the next row goes.
+
+     Making the contents start on the rule was wrong anyway, and the glyph proves it: a
+     lucide plus at 14px has ~2.3px of empty box on each side, so "on the rule" put the
+     visible cross 2.3px past it, and its label at 20px — while every column title above and
+     every entry name below sits at 29px. The button's own hover shape belongs on the grid
+     edge, exactly like `.db-tab` above and `.db-th-label` in the header; its glyph belongs
+     on the 10px icon axis; its words belong on the 29px text column. */
+  padding: 6px 10px;
+  gap: 5px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.db-new-row:hover { background: var(--hover); color: var(--text); }
+
+/* The one line of guidance a brand-new database gets. It sits inside the table's own
+   border, so it reads as a footer to the table rather than as page text that happens
+   to be nearby. */
+.db-hint {
+  margin: 0;
+  padding: 9px 10px;
+  border-top: 1px solid var(--hairline);
+  font-size: var(--fs-meta);
+  line-height: 1.5;
+  color: var(--palette-gray-text);
+}
+
+.db-hint strong {
+  font-weight: 500;
+  color: var(--text);
+}
+
+.db-empty,
+.db-count {
+  margin: 0;
+  padding: 10px;
+  font-size: var(--fs-meta);
+  color: var(--palette-gray-text);
+}
+
+.db-count { border-top: 1px solid var(--hairline); }
+
+/* BlockNote's reset out-specifies the widget, so the widget has to say it twice.
+   ---------------------------------------------------------------------------
+   `.bn-editor table { font-size: var(--fs-body) }` is (0,1,1) and beats `.db-table`'s
+   (0,1,0), so the table was rendering at editor body size — a header row as tall and
+   as large as prose. `.bn-default-styles p { font-size: inherit }` does the same to
+   `.db-hint`, `.db-empty` and `.db-count`, which are paragraphs inside the editor.
+   Scoping to `.db-block` (0,2,0) puts the widget's own type scale back on top instead
+   of fighting it from a different file. */
+.db-block .db-table { font-size: var(--fs-ui); }
+.db-block .db-hint,
+.db-block .db-empty,
+.db-block .db-count { font-size: var(--fs-meta); }
+
+/* The cell's *geometry* has the same problem, and it is the one that made the cell look
+   like a box inside a box even after the padding was removed from `.db-cell`: the editor
+   sets padding on `td`, so the widget's (0,1,0) rule lost and the cell kept 10px of editor
+   padding around a control that was already inset. `.db-block .db-table .db-cell` is
+   (0,3,0) and wins, which lets the control be the whole cell. */
+.db-block .db-table .db-cell {
+  padding: 0;
+  height: 32px;
+}
+
+/* The header is a cell too. `.db-cell` got the zeroed padding and the header did not,
+   so the property cell kept the editor's `6px 10px` and the label — the interactable —
+   floated inside a frame that was already a frame. Two things fell out of that one box:
+   the header row stood 44px tall beside 32px data rows, and the top and bottom 6px of
+   every property cell were dead, because the label is the only thing that opens the
+   property menu. Zeroed, the label fills the cell and the whole cell is the trigger.
+
+   The fill and the weight are the same trap, one cascade older (B40g). `globals.css` sets
+   `.bn-editor th { background: var(--sunken); font-weight: 600 }` at (0,1,1), so the
+   header kept a near-black band and bold text no matter what `.db-th` said — the owner's
+   "the property row shouldnt be black, it should be the same color". Scoped, the widget
+   gets both back: the page's own surface, and the 500 weight its label was written for. */
+.db-block .db-table .db-th {
+  padding: 0;
+  height: 32px;
+  background: transparent;
+  font-weight: 500;
+}
+
+/* And the outer ring has to go with the wrapper's border. The editor gives every
+   `th`/`td` a full 1px border, so removing only the wrapper's would leave the identical
+   rectangle drawn one pixel inside it: top, left, right and bottom all still visible.
+   Only the outermost edge is cleared — the column separators, the rule under the header
+   and the rule between rows are the table, and they stay.
+
+   `:first-child` is not enough for the left edge any more: the first cell is the
+   zero-wide gutter, which draws nothing, so the *second* cell's left border became the
+   table's left edge — a vertical line down the side of a table that is supposed to have
+   no frame. Both are named. */
+.db-block .db-table tr > :first-child { border-left: 0; }
+.db-block .db-table tr > .db-gutter + * { border-left: 0; }
+.db-block .db-table tr > :last-child { border-right: 0; }
+.db-block .db-table thead tr > th { border-top: 0; }
+.db-block .db-table tbody tr:last-child > .db-cell { border-bottom: 0; }
+
+/* ---------------------------------------------------------------------------
+   Block states — loading, missing, failed. All three are honest rather than
+   blank, because a block that silently renders nothing is indistinguishable from
+   a bug.
+   --------------------------------------------------------------------------- */
+.db-block-state {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: 6px;
+  background: var(--sunken);
+  color: var(--palette-gray-text);
+  font-size: var(--fs-ui);
+}
+
+.db-block-error { border-color: var(--accent-line); }
+
+.db-retry {
+  margin-left: auto;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 5px;
+  background: var(--raised);
+  color: var(--text);
+  font: 500 var(--fs-micro) / 1 var(--font-ui);
+  padding: 5px 9px;
+  cursor: pointer;
+}
+
+.db-retry:hover { background: var(--hover); }
+
+.db-spin { animation: db-spin 1s linear infinite; }
+
+@keyframes db-spin { to { transform: rotate(360deg); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .db-spin { animation: none; }
+}
+
+/* ---------------------------------------------------------------------------
+   Editing
+   ---------------------------------------------------------------------------
+   A cell's control fills the cell entirely and looks like text until it is hovered or
+   focused. That is the whole trick: the table is readable at rest and editable in
+   place, with no separate "edit mode" to fall out of sync with. */
+/* Fills the cell, edge to edge. Its inset is the cell's only inset, so the hover and focus
+   rings are the size of the cell rather than a box inside a box. */
+.db-cell-input {
+  display: block;
+  width: 100%;
+  height: 32px;
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: inherit;
+  font: 400 var(--fs-ui) / 1 var(--font-ui);
+  padding: 0 10px;
+}
+
+/* Hover draws nothing.
+   ---------------------------------------------------------------------------
+   This used to be `inset 0 0 0 1px var(--hairline-strong)`, which drew a rectangle
+   around the text *inside* a cell that already belongs to a row that is already
+   filled on hover: three nested boxes to say "your pointer is here". The row's own
+   fill says it, once. Focus keeps its ring — that one is not decoration, it is the
+   only thing telling a keyboard where typing will land. */
+.db-cell-input:focus {
+  outline: none;
+  background: var(--raised);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+
+.db-cell-input::placeholder { color: var(--palette-gray-text); opacity: 0.7; }
+.db-cell-empty { color: var(--palette-gray-text); }
+.db-cell-name .db-cell-input { font-weight: 500; }
+.db-cell-readonly { color: var(--palette-gray-text); }
+
+/* A select is a text field that opens a list; `appearance: none` keeps it from looking
+   like a Windows combobox pasted into a table. */
+select.db-cell-input { appearance: none; cursor: pointer; }
+
+/* `.db-check` is defined once, with the other gutter controls — see the row-gutter
+   section. A second copy lived here and won by source order, which is how the checkbox
+   ended up block-level and misaligned. */
+
+/* ---------------------------------------------------------------------------
+   Header controls
+   --------------------------------------------------------------------------- */
+.db-th-inner {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding-right: 4px;
+}
+
+/* The button reset, and only the reset. Its geometry lives in the header block near the
+   bottom of this file, and it used to live in both: `margin-left: 4px` here outlived the
+   redesign because the newer block never reset it, so the label sat 4px inside a cell it
+   was supposed to fill and left a dead strip down the left edge of every column — the one
+   part of the header that did not open the menu. */
+.db-th-label {
+  display: block;
+  flex: 1;
+  min-width: 0;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.db-th-label { cursor: text; }
+button.db-th-label:hover { background: var(--hover); color: var(--text); }
+.db-th-static { color: var(--text); }
+.db-th-static:hover { background: transparent; }
+
+.db-th-input {
+  flex: 1;
+  min-width: 0;
+  height: 24px;
+  margin-left: 4px;
+  border: 1px solid var(--accent-line);
+  border-radius: 3px;
+  background: var(--raised);
+  color: var(--text);
+  font: inherit;
+  padding: 0 5px;
+}
+
+.db-th-input:focus { outline: none; }
+
+.db-th-delete {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: var(--palette-gray-text);
+  cursor: pointer;
+  /* Out of the way until wanted: a delete button on every header reads as a warning. */
+  opacity: 0;
+}
+
+.db-th:hover .db-th-delete { opacity: 1; }
+.db-th-delete:hover { background: var(--hover-strong); color: var(--text); }
+
+/* ---------------------------------------------------------------------------
+   The property menu
+   --------------------------------------------------------------------------- */
+.db-menu {
+  position: fixed;
+  z-index: 40;
+  width: 240px;
+  max-height: min(420px, 70vh);
+  overflow-y: auto;
+  padding: 4px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 8px;
+  background: var(--raised);
+  box-shadow: 0 12px 32px rgb(0 0 0 / 35%);
+}
+
+.db-menu-group + .db-menu-group { border-top: 1px solid var(--hairline); margin-top: 4px; padding-top: 4px; }
+
+.db-menu-title {
+  margin: 0;
+  padding: 6px 8px 4px;
+  font: 500 var(--fs-micro) / 1 var(--font-ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--palette-gray-text);
+}
+
+.db-menu-item {
+  display: block;
+  width: 100%;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font: 400 var(--fs-ui) / 1.4 var(--font-ui);
+  text-align: left;
+  padding: 6px 8px;
+  cursor: pointer;
+}
+
+.db-menu-item:hover,
+.db-menu-item:focus-visible { background: var(--hover-strong); outline: none; }
+
+/* ---------------------------------------------------------------------------
+   A write that failed
+   ---------------------------------------------------------------------------
+   Beside the table rather than instead of it: the last successful read is still on
+   screen and still true, so the message reports the one thing that did not land. */
+.db-failure {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: 6px;
+  border: 1px solid var(--accent-line);
+  border-radius: 6px;
+  background: var(--sunken);
+  color: var(--text);
+  font: 400 var(--fs-meta) / 1.4 var(--font-ui);
+  text-align: left;
+  padding: 7px 10px;
+  cursor: pointer;
+}
+
+.db-failure-hint {
+  margin-left: auto;
+  color: var(--palette-gray-text);
+  font-size: var(--fs-micro);
+}
+
+/* ---------------------------------------------------------------------------
+   The column header: icon, name, sort mark, and a drag handle
+   ---------------------------------------------------------------------------
+   The handle is a sibling of the label button, not a child of it. A button inside
+   a button is invalid HTML, and the inner one swallows the pointerdown that starts
+   the drag — which is exactly the bug that makes a resize handle "not work".
+   `touch-action: none` matters too: without it a touch drag scrolls the table
+   sideways instead of resizing, which reads as the handle being broken on a phone. */
+.db-th { position: relative; }
+
+.db-th-label {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  width: 100%;
+  /* The same 32px `.db-cell` uses, and for the same reason: it is what makes the header
+     row the height of a data row. `100%` here resolves against a cell whose own height is
+     the minimum, so the header came out a pixel short of the rows beneath it. */
+  height: 32px;
+  /* 10px, not 8px: with the cell's own padding gone the label *is* the cell's inset, and
+     it should match `.db-cell-text`'s, so a header icon and the first character of the
+     values beneath it start on the same line. */
+  padding: 0 10px;
+  /* The cell is the trigger, so nothing may inset the trigger from the cell. */
+  margin: 0;
+}
+
+/* B40h — the sidebar's icon treatment, exactly: `.tree-link svg` is the row colour at
+   `opacity: .75`. The icon is a mark beside a label, not a second label, so it sits one
+   step below the text it belongs to. */
+.db-th-icon { flex: none; color: var(--text-2); opacity: 0.75; }
+.db-th:hover .db-th-icon { color: var(--text); }
+
+.db-th-text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-th-sorted { flex: none; color: var(--accent); }
+
+.db-th-caret {
+  flex: none;
+  opacity: 0;
+  transition: opacity 120ms ease;
+}
+
+.db-th:hover .db-th-caret,
+.db-th-label:focus-visible .db-th-caret { opacity: 0.5; }
+
+/* The handle sits *inside* the column, not straddling the border. A handle at
+   `right: -3px` has its centre exactly on the boundary, where the next `<th>` — a
+   later sibling at the same z-index — paints over it and swallows the pointerdown.
+   That is the difference between a grabber that works and one that looks right. */
+.db-th-resize {
+  position: absolute;
+  top: 0;
+  right: 0;
+  z-index: 2;
+  width: 8px;
+  height: 100%;
+  cursor: col-resize;
+  touch-action: none;
+}
+
+/* The visible line trails 6px in from each end so neighbouring handles read as
+   separate ticks rather than one continuous rule. */
+.db-th-resize::after {
+  content: "";
+  position: absolute;
+  top: 6px;
+  bottom: 6px;
+  right: 0;
+  width: 1px;
+  background: transparent;
+  transition: background 120ms ease;
+}
+
+.db-th-resize:hover::after,
+body.db-resizing .db-th-resize::after { background: var(--hairline-strong); }
+
+/* While dragging, the cursor must not flick back to a text caret as the pointer
+   crosses cells, and nothing may start a text selection under it. */
+body.db-resizing { cursor: col-resize; user-select: none; }
+body.db-resizing * { cursor: col-resize !important; }
+
+/* ---------------------------------------------------------------------------
+   The property menu
+   --------------------------------------------------------------------------- */
+.db-prop-menu { width: 252px; }
+
+.db-prop-name {
+  width: 100%;
+  box-sizing: border-box;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text);
+  font: 400 var(--fs-ui) / 1.4 var(--font-ui);
+  padding: 5px 8px;
+}
+
+.db-prop-name:focus {
+  outline: none;
+  border-color: var(--accent-line);
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+
+.db-icon-grid {
+  display: grid;
+  grid-template-columns: repeat(7, 1fr);
+  gap: 2px;
+  padding: 0 4px 2px;
+}
+
+.db-icon-choice {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 26px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--palette-gray-text);
+  cursor: pointer;
+}
+
+.db-icon-choice:hover { background: var(--hover-strong); color: var(--text); }
+
+.db-icon-choice.is-current {
+  color: var(--text);
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent-line);
+}
+
+/* The menu items in this menu carry an icon, a label and a tick, so they lay out
+   as a row rather than the single-line block the property picker uses. */
+.db-prop-menu .db-menu-item {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.db-menu-check { margin-left: auto; color: var(--accent); }
+
+.db-menu-danger { color: var(--danger); }
+.db-menu-danger:hover,
+.db-menu-danger:focus-visible { background: var(--accent-soft); }
+
+/* The `+` and the filler are not columns, and drawing them as columns is what made the
+   table look broken: `+` was a fully bordered 48px cell repeated down every row, and the
+   filler — which exists only to absorb leftover width so a drag is 1:1 — carried a left
+   border of its own. Two empty bordered bands running the height of the table, one of
+   them ending one pixel inside the other.
+
+   Their *sides* stay clear. Their bottom edges do not (B40g): the header's rule has to
+   reach the end of the table, and clearing the whole border here is what left the header
+   line stopping dead under the `+` while every body row ran the full width. The rule over
+   the filler is restated below; `border-collapse` merges it with the `+`'s into one line. */
+.db-block .db-table .db-th-filler,
+.db-block .db-table .db-cell-filler {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  width: auto;
+}
+
+.db-block .db-table .db-th-filler { border-bottom: 1px solid var(--hairline); }
+
+/* `+` is part of the header row, not a column: it loses its side edges so the header's
+   rule ends on the same column the body's rules end on. The line between the last data
+   column and the `+` is not deleted with them — that line is the last data cell's own
+   right border. Its bottom edge stays, which is the header rule continuing. */
+.db-block .db-table .db-th-add { border-right: 0; border-left: 0; }
+
+/* In the body the `+` column is empty space that the header lends its button to. */
+.db-block .db-table .db-cell-add {
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+/* ---------------------------------------------------------------------------
+   Menu rows
+   ---------------------------------------------------------------------------
+   The menu items in `menu.tsx` are one shape: icon, label, optional trailing mark. They
+   are built from `.db-menu-item` rather than redefining it, so text-only lists (the `+`
+   menu) and icon lists line up without either knowing about the other. */
+.db-menu-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+
+.db-menu-icon {
+  display: inline-flex;
+  flex: none;
+  color: var(--palette-gray-text);
+}
+
+.db-menu-row:hover .db-menu-icon,
+.db-menu-row:focus-visible .db-menu-icon { color: var(--text); }
+
+.db-menu-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-menu-caret { flex: none; color: var(--palette-gray-text); margin-left: auto; }
+.db-menu-divider { height: 1px; margin: 4px 0; background: var(--hairline); }
+.db-menu-sub { position: relative; }
+.db-menu-row.is-disabled { opacity: 0.5; cursor: default; }
+
+/* The property menu's own head: the icon you click and the name you type. It replaces an
+   icon *grid* that used to live in this menu and had nowhere to grow. */
+.db-prop-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 2px 4px;
+}
+
+.db-prop-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 28px;
+  height: 28px;
+  padding: 0;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+}
+
+.db-prop-icon-btn:hover { background: var(--hover-strong); }
+
+.db-prop-head .db-prop-name { flex: 1 1 auto; width: auto; min-width: 0; }
+
+/* ---------------------------------------------------------------------------
+   The icon picker
+   ---------------------------------------------------------------------------
+   Width and height are fixed rather than content-sized: the grid is eight columns wide and
+   the panel must not resize as the filter narrows from 140 icons to one. */
+.db-icon-picker {
+  display: flex;
+  flex-direction: column;
+  padding: 8px;
+  overflow: hidden;
+}
+
+.db-icon-picker-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 2px 6px;
+}
+
+.db-icon-picker-title { font: 500 var(--fs-ui) / 1 var(--font-ui); color: var(--text); }
+
+.db-icon-picker-remove {
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--palette-gray-text);
+  font: 400 var(--fs-ui) / 1 var(--font-ui);
+  padding: 4px 6px;
+  cursor: pointer;
+}
+
+.db-icon-picker-remove:hover { background: var(--hover-strong); color: var(--text); }
+
+.db-icon-search {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: none;
+  padding: 0 6px;
+  border: 1px solid var(--accent-line);
+  border-radius: 5px;
+  background: var(--surface);
+}
+
+.db-icon-search-glyph { flex: none; color: var(--palette-gray-text); }
+
+.db-icon-search-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 28px;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font: 400 var(--fs-ui) / 1 var(--font-ui);
+  outline: none;
+}
+
+.db-icon-shuffle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--palette-gray-text);
+  cursor: pointer;
+}
+
+.db-icon-shuffle:hover { background: var(--hover-strong); color: var(--text); }
+
+/* The only scrolling region. Without this the search field would scroll out of reach as
+   soon as you were three rows into the grid. */
+.db-icon-scroll {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding-right: 2px;
+}
+
+.db-icon-grid {
+  display: grid;
+  grid-template-columns: repeat(8, 1fr);
+  gap: 1px;
+}
+
+.db-icon-choice {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 30px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--palette-gray-text);
+  cursor: pointer;
+}
+
+.db-icon-choice:hover { background: var(--hover-strong); color: var(--text); }
+.db-icon-choice.is-current { color: var(--accent); box-shadow: inset 0 0 0 1px var(--accent-line); }
+.db-icon-empty { margin: 8px 4px; color: var(--palette-gray-text); font: 400 var(--fs-ui) / 1.5 var(--font-ui); }
+
+/* The way back from Hide. Small, quiet, and only there when something is hidden. */
+.db-hidden-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  width: auto;
+  margin: 4px 0 0;
+  padding: 4px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: 999px;
+  background: transparent;
+  color: var(--palette-gray-text);
+  font: 400 var(--fs-micro) / 1 var(--font-ui);
+  cursor: pointer;
+}
+
+.db-hidden-chip:hover { background: var(--hover-strong); color: var(--text); }

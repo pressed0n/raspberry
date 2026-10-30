@@ -22,9 +22,15 @@ test("a fresh database records every migration once", async () => {
   const database = await openDatabase("file::memory:");
   assert.deepEqual(await versionRows(database), [], "the baseline DDL no longer writes a version row on its own");
   const first = await migrate(database);
-  assert.deepEqual(first.applied, [1, 2, 3]);
-  assert.equal(first.version, 3);
-  assert.deepEqual(await versionRows(database), [1, 2, 3]);
+  /* Derived from the plan rather than spelled out, so adding a migration does not mean
+     editing an assertion whose point is "each one ran exactly once", not "there are
+     six". The duplicate-version and newer-than-build tests below are what guard the
+     plan itself. */
+  const versions = [...migrations.map((migration) => migration.version)].sort((a, b) => a - b);
+  const head = versions[versions.length - 1] ?? 0;
+  assert.deepEqual(first.applied, versions);
+  assert.equal(first.version, head);
+  assert.deepEqual(await versionRows(database), versions);
 });
 
 test("migrating again applies nothing", async () => {
@@ -32,7 +38,7 @@ test("migrating again applies nothing", async () => {
   await migrate(database);
   const second = await migrate(database);
   assert.deepEqual(second.applied, []);
-  assert.equal(second.version, 3);
+  assert.equal(second.version, Math.max(0, ...migrations.map((migration) => migration.version)));
 });
 
 test("pending migrations run in version order, not declaration order", async () => {

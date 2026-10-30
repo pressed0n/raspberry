@@ -1,0 +1,182 @@
+/* Raspberry — page tabs (B22)
+   ---------------------------------------------------------------------------
+   The strip lives inside `.topbar`, in the slot the removed breadcrumb used to
+   occupy. It adds no row and no height: the topbar's own height is the budget.
+
+   With one tab open it is deliberately undecorated — no pill, no close button —
+   so a single-page session still reads as a page header rather than as chrome.
+   The tab affordances appear from the second tab. That is the same rule B19 used
+   for the rest of the UI: nothing earns a control until it has something to do.
+   --------------------------------------------------------------------------- */
+
+.tabstrip {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+
+.tabstrip-track {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  min-width: 0;
+  /* Shrink to fit the tabs instead of stretching: the + then sits immediately
+     after the last tab rather than being exiled to the far edge of the topbar.
+     `flex-shrink: 1` still lets a long strip give width back to the topbar. */
+  flex: 0 1 auto;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: none;
+}
+.tabstrip-track::-webkit-scrollbar { display: none; }
+
+/* Only masked while it actually overflows — with the track shrunk to its
+   content, an always-on fade would clip the right edge of the last tab. */
+.tabstrip-track.is-scrollable {
+  mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 20px), transparent 100%);
+  -webkit-mask-image: linear-gradient(to right, #000 0, #000 calc(100% - 20px), transparent 100%);
+}
+
+/* ---------- a tab ---------- */
+
+.tab {
+  display: flex;
+  align-items: center;
+  flex: 0 0 auto;
+  max-width: 190px;
+  height: 26px;
+  border-radius: var(--radius-sm);
+  color: var(--text-3);
+  transition:
+    background var(--t-hover) ease,
+    color var(--t-hover) ease,
+    /* Only reorder writes `transform`, and it writes it as an inline FLIP
+       offset that is cleared on the next frame. See `useTabFlip`. */
+    transform var(--t-move) var(--spring);
+  /* Text selection during a drag would fight the reorder. */
+  user-select: none;
+  -webkit-user-select: none;
+  /* Let the track scroll horizontally on touch instead of treating every
+     gesture as a drag. Reordering on touch is therefore a desktop affordance;
+     Alt+Shift+Arrow covers the keyboard case. */
+  touch-action: pan-x;
+}
+
+.tab:hover { background: var(--hover); color: var(--text-2); }
+
+.tab.is-active {
+  background: var(--accent-soft);
+  color: var(--text);
+}
+.tab.is-active .tab-icon { color: var(--accent); }
+
+/* Grab feedback, and the only thing that makes a drag legible *before* the
+   first swap: until a tab crosses its neighbour, nothing else on screen moves.
+   The lift is carried by colour rather than `transform`, because the FLIP
+   offset already owns `transform` on this element and two owners would fight. */
+.tabstrip.is-dragging .tabstrip-track { cursor: grabbing; }
+.tab.is-dragging {
+  position: relative;
+  z-index: 1;
+  background: var(--hover-strong);
+  color: var(--text);
+}
+.tab.is-dragging .tab-icon { color: var(--text-2); }
+
+.tab-main {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  height: 100%;
+  padding: 0 2px 0 8px;
+  border-radius: inherit;
+}
+
+.tab-icon { display: grid; place-items: center; flex: 0 0 auto; color: var(--text-3); }
+.tab.is-active .tab-icon { color: var(--accent); }
+
+.tab-label {
+  min-width: 0;
+  max-width: 148px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-meta);
+  font-weight: 500;
+  letter-spacing: -0.005em;
+}
+
+/* Unconfirmed edits. Sits where the close button would be, so the tab itself
+   never changes width when a save is in flight. */
+.tab-dot {
+  flex: 0 0 auto;
+  width: 5px;
+  height: 5px;
+  margin-left: 1px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+.tab.is-dirty:hover .tab-dot { display: none; }
+
+.tab-close {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  margin-right: 3px;
+  border-radius: 4px;
+  color: var(--text-3);
+  opacity: 0;
+  transition: opacity var(--t-hover) ease, background var(--t-hover) ease;
+}
+.tab:hover .tab-close,
+.tab.is-active .tab-close,
+.tab-close:focus-visible { opacity: 1; }
+.tab-close:hover { background: var(--hover-strong); color: var(--text); }
+
+/* ---------- single tab: no chrome ---------- */
+
+.tabstrip.is-solo .tab { max-width: none; color: var(--text); background: transparent; }
+.tabstrip.is-solo .tab:hover { background: transparent; }
+.tabstrip.is-solo .tab-main { padding-left: 2px; gap: 8px; }
+.tabstrip.is-solo .tab-label { max-width: 340px; }
+
+/* ---------- new tab ---------- */
+
+.tab-new {
+  display: grid;
+  place-items: center;
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border-radius: var(--radius-sm);
+  color: var(--text-3);
+  transition: background var(--t-hover) ease, color var(--t-hover) ease;
+}
+.tab-new:hover { background: var(--hover); color: var(--text); }
+
+/* ---------- context menu ---------- */
+
+.tab-menu {
+  position: fixed;
+  z-index: 80;
+  min-width: 168px;
+  padding: 5px;
+  background: var(--elevated);
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  animation: layer-in 160ms var(--spring) both;
+}
+
+@media (max-width: 860px) {
+  .tab { max-width: 132px; }
+  .tab-label { max-width: 96px; }
+  /* The close button has nowhere to hide on a narrow screen and the tab is
+     small enough that the whole control is the target. */
+  .tab-close { opacity: 1; }
+}

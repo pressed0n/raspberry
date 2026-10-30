@@ -1,0 +1,786 @@
+/* Raspberry — settings dialog (B30, one surface in B32, rail in B33)
+   ---------------------------------------------------------------------------
+   Three columns inside one modal: the rail, the controls, the live preview.
+
+   The preview keeps its own column rather than stacking under the controls
+   because it is the thing you are judging — scrolling it away from the slider you
+   are dragging is how you end up tuning colours blind. It does not shrink with
+   the window either: below 860px it moves *under* the controls and is allowed to
+   scroll away, because on a phone the strips are the live feedback (they are the
+   colours, at full size) and the preview is the check you make at the end.
+
+   The rail is 164px because that is the width of "Appearance" plus a 15px icon
+   plus enough padding that the row does not feel tight — not a round number. It
+   is the first column so that reading order matches the visual order, and it is
+   the only column with a hairline on its *end* edge, which is what makes the
+   three columns read as three columns rather than as floating panels.
+*/
+
+/* ---------- shell ---------- */
+
+/* Height is content-driven up to a cap rather than fixed: a settings dialog that
+   is 800px tall to hold 660px of controls shows a pocket of grey nothing at the
+   bottom, and the eye reads that as something missing. */
+.panel-settings {
+  width: min(1000px, 100%);
+  max-height: min(92dvh, 820px);
+}
+
+/* The scrim centres a tall panel instead of hanging it from 12vh, which would
+   push the bottom of an 800px dialog off the screen. */
+.scrim-center {
+  place-items: center;
+  padding: var(--s4);
+}
+
+.set-shell {
+  flex: 1 1 auto;
+  min-height: 0;
+  display: grid;
+  /* The preview is fixed and the controls take the slack: a colour column that
+     reflows as you drag a slider is a column that moves under the cursor. */
+  grid-template-columns: 164px minmax(0, 1fr) 272px;
+}
+
+/* ---------- header buttons ---------- */
+
+.set-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font: inherit;
+  font-size: var(--fs-meta);
+  color: var(--text-2);
+  background: transparent;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  padding: 4px 10px;
+  cursor: pointer;
+  transition: color var(--t-hover) ease, border-color var(--t-hover) ease, background-color var(--t-hover) ease;
+}
+.set-btn:hover:not(:disabled) { color: var(--text); border-color: var(--accent-line); background: var(--hover); }
+.set-btn:active:not(:disabled) { transform: scale(0.98); }
+.set-btn:disabled { opacity: 0.4; cursor: default; }
+.set-btn:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
+
+/* ---------- rail ---------- */
+
+.set-rail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--s4);
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--s5) var(--s3) var(--s5) var(--s4);
+  border-inline-end: 1px solid var(--hairline);
+  /* No background fill. Two tinted columns (preview and rail) plus a third in
+     between would give the dialog three equal depths and no hierarchy; the rail
+     sits flat on the panel and lets the hairline do the separating. */
+}
+
+.set-rail-group { display: grid; gap: var(--s1); min-width: 0; }
+
+/* Only rendered when the menu has more than one group — see `showsGroupCaptions`.
+   Tracked caps at 11px, the same level as a group head inside the panel, so the
+   rail's structure and the panel's structure are recognisably the same idea. */
+.set-rail-caption {
+  margin: 0;
+  padding-inline-start: 8px;
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.set-rail-list {
+  display: grid;
+  gap: 2px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The same row spec as the app's own sidebar (`.side-row` in shell.css): 30px
+   tall, 8px padding, 9px icon gap, the same easing. A settings rail that looks
+   like a control from somewhere else is a rail you have to learn twice. */
+.set-rail-row {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  width: 100%;
+  height: var(--row-h);
+  padding: 0 var(--s2);
+  font: inherit;
+  font-size: var(--fs-ui);
+  color: var(--text-2);
+  text-align: left;
+  background: transparent;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    background-color var(--t-hover) var(--spring-soft),
+    color var(--t-hover) var(--spring-soft),
+    transform var(--t-tap) var(--spring);
+}
+/* The icon carries the same weight as the label, so it dims with it rather than
+   staying at full strength beside quieter text. */
+.set-rail-row svg { flex: 0 0 auto; opacity: 0.8; transition: color var(--t-hover) ease; }
+.set-rail-row span { flex: 1 1 auto; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.set-rail-row:hover { color: var(--text); background: var(--hover); }
+.set-rail-row:active { background: var(--hover-strong); transform: scale(0.985); }
+/* "You are here" borrows the sidebar tree's own answer — accent-soft fill, accent
+   icon, weight 500 — rather than inventing a third selection style for the same
+   product. In a rail of one this is the whole difference between here and not
+   here, so it should be a fact about the row, not a decoration on it. */
+.set-rail-row.is-active {
+  color: var(--text);
+  background: var(--accent-soft);
+  font-weight: 500;
+}
+.set-rail-row.is-active svg { color: var(--accent); opacity: 1; }
+/* Inset, because the row fills: an outer ring on a filled row reads as a second
+   row behind it. */
+.set-rail-row:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
+
+/* ---------- controls column ---------- */
+
+.set-body {
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--s5) var(--s4) var(--s5) var(--s5);
+  /* The scrollbar sits on the divider, so the content never kisses it. */
+  scrollbar-gutter: stable;
+}
+
+.set-intro { display: grid; gap: var(--s1); margin: 0 0 var(--s4); }
+
+/* The theme switch rides on the heading line. It is one choice, and a group head
+   plus a paragraph to say "dark or light" used to cost 70px of a column that was
+   already scrolling. */
+.set-intro-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s3);
+  min-height: 26px;
+}
+.set-intro h3 {
+  margin: 0;
+  font-size: var(--fs-body);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text);
+}
+
+/* One explainer for the whole surface. A one-sentence hint is worth its height;
+   three of them are a form that has given up on being self-evident.
+
+   `margin: 0` is load-bearing: this app ships no global reset, so a bare <p>
+   arrives with 1em of browser margin top and bottom, which is 24px of silence. */
+.set-hint {
+  margin: 0;
+  font-size: var(--fs-meta);
+  line-height: 1.5;
+  color: var(--text-3);
+  max-width: 64ch;
+}
+
+/* ---------- groups ---------- */
+
+.set-group {
+  display: grid;
+  gap: var(--s2);
+  min-width: 0;
+}
+.set-group + .set-group {
+  margin-top: var(--s3);
+  padding-top: var(--s3);
+  border-top: 1px solid var(--hairline);
+}
+
+.set-group-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--s2);
+  min-height: 18px;
+}
+/* Tracked caps at 11px: small type wants positive tracking, and this is the one
+   level of the hierarchy that is a label rather than a sentence. */
+.set-group-head h4 {
+  margin: 0;
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.set-link {
+  font: inherit;
+  font-size: var(--fs-micro);
+  color: var(--text-3);
+  background: none;
+  border: 0;
+  padding: 2px 0;
+  cursor: pointer;
+  border-radius: 3px;
+  transition: color var(--t-hover) ease;
+}
+.set-link:hover:not(:disabled) { color: var(--text); text-decoration: underline; text-underline-offset: 2px; }
+.set-link:disabled { opacity: 0.35; cursor: default; }
+.set-link:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+
+/* ---------- the strip ---------- */
+
+/* Nine chips, capped at 44px so a wide column cannot turn the strip into a
+   ribbon, and free to shrink to ~17px before a small phone runs out of room.
+   Every group uses this same control, so "choose a colour" is learned once.
+
+   24px high (B34) rather than 30: nine chips at a glance is a *swatch* task, not a
+   painting task, and the strip is the first thing in every group — shaving 6px
+   here shortens all three groups at once. At 24 a chip is still 4:1 against its own
+   width, so it never reads as a line. */
+.swatches {
+  display: grid;
+  grid-template-columns: repeat(9, minmax(0, 44px));
+  gap: 6px;
+  min-width: 0;
+}
+
+.swatch {
+  position: relative;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 6px;
+  background: var(--swatch);
+  cursor: pointer;
+  /* The hairline keeps a pale chip from bleeding into a pale panel; it is inset
+     so it never eats into the chip's colour. */
+  box-shadow: inset 0 0 0 1px rgba(0, 0, 0, 0.16);
+  transition: transform var(--t-tap) var(--spring), outline-color var(--t-hover) ease;
+}
+
+/* Unselected chips are washed toward the panel rather than faded. `opacity`
+   would take the hairline, the "customised" dot and the focus ring with it — so
+   the veil is its own layer and the chip's own colour is never actually changed.
+
+   0.5 (B34, up from 0.22): eight of nine chips are not the answer, and they were
+   competing with the one that is. Half is enough contrast against the panel for a
+   pale pastel to still read as *a* colour, which is all it has to do — the chip
+   that matters is the one wearing the outline. */
+.swatch::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  /* `--elevated` is what the modal panel is painted with (shell.css `.panel`), so
+     the veil mixes toward the surface the chip actually sits on rather than toward
+     the page behind the dialog. */
+  background: var(--elevated);
+  opacity: 0.5;
+  pointer-events: none;
+  transition: opacity var(--t-hover) ease;
+}
+/* Hover is where the veil comes off, because that is the cheapest way to say
+   "this one is under your finger" — a chip that lights up to two-thirds of its
+   true colour on approach needs no tooltip and no label. */
+.swatch:hover::before { opacity: 0.3; }
+.swatch.is-active::before { opacity: 0; }
+.swatch:hover { transform: translateY(-1px); }
+/* Feedback lives on the press, not on the release — waiting for `click` to show
+   anything is what makes a control feel dead. */
+.swatch:active { transform: scale(0.94); }
+.swatch.is-active { outline: 2px solid var(--text); outline-offset: 2px; }
+/* Focus and selection would otherwise fight over the same outline, so focus
+   takes the accent and selection keeps the text colour. */
+.swatch:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 3px; }
+
+/* The dot says "this one is not the shipped colour". White with a dark halo so
+   it survives both a pale pastel and a saturated light-mode chip. Slightly
+   smaller and tighter than the 30px chip carried, so a 24px chip still looks
+   like a chip with a dot on it rather than a chip that has been branded. */
+.swatch[data-edited]::after {
+  content: "";
+  position: absolute;
+  inset-block-start: 2px;
+  inset-inline-end: 2px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 0 0 1px rgba(0, 0, 0, 0.45);
+}
+
+/* ---------- the pair: ink and fill on one row ---------- */
+
+/* Three columns, twice: a 34px label, the text track, the fill track. The label
+   appears once instead of once per half, and because both tracks start at the
+   same x, the alignment *is* the comparison — a fill that sits 50 points lighter
+   than its ink looks like it without either number being read. */
+.pair { display: grid; gap: var(--s1); }
+
+.pair-head,
+.paxis {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr) minmax(0, 1fr);
+  align-items: center;
+  gap: var(--s2);
+}
+
+.pair-head {
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+/* Right-aligned inside a 34px column, the chip sits directly over the label
+   column rather than pushing the header text along. */
+.pair-head > span:not(.pair-chip) { padding-inline-start: 1px; }
+
+/* The pair seen as it is actually used: letters on a highlight. It is the one
+   sample that shows both halves at once, which is why it lives in the header of
+   the paired control rather than beside it. */
+.pair-chip {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  box-shadow: inset 0 0 0 1px var(--hairline-strong);
+}
+
+.paxis { min-height: 26px; }
+.paxis-label { font-size: var(--fs-micro); color: var(--text-3); }
+.paxis-track {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* ---------- segmented ---------- */
+
+.segmented {
+  display: inline-flex;
+  flex: 0 0 auto;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--hover);
+}
+.segmented button {
+  font: inherit;
+  font-size: var(--fs-meta);
+  color: var(--text-2);
+  background: transparent;
+  border: 0;
+  border-radius: 3px;
+  padding: 3px 12px;
+  cursor: pointer;
+  transition: color var(--t-hover) ease, background-color var(--t-hover) ease;
+}
+.segmented button:hover { color: var(--text); }
+.segmented button.is-active { color: var(--text); background: var(--hover-strong); }
+.segmented button:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 1px; }
+
+/* ---------- the second tier: choose with the strip, tune with the sliders ------- */
+
+/* Primary and tick have two kinds of user and one view to serve them from. Most
+   people pick a chip and leave; the few who want an exact hue want three sliders.
+   Stacking the sliders open for everybody spends 44px per group on the minority,
+   so they live behind a toggle that rides the group's *heading line* — not a row
+   of its own, because a permanent "Advanced" row under every strip would cost
+   most of the height the disclosure is meant to save.
+
+   "Advanced" is spelled out next to the chevron on purpose: a bare chevron on a
+   group header is the accordion gesture, and reading it as "collapse this section"
+   rather than "there are more controls in here" is the one wrong guess this
+   control can invite. */
+.adv-toggle {
+  position: relative;
+  display: inline-flex;
+  align-items: center;
+  gap: 1px;
+  /* The chevron's own bearing is the left padding; nothing else is, so the label
+     optically ends where the heading column does. */
+  padding: 2px 4px 2px 1px;
+  margin-inline-end: -4px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  font: inherit;
+  font-size: var(--fs-micro);
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  /* `--text-2`, not `--text-3`: this is a control, not a caption. It still loses
+     to the group's own heading, which is the hierarchy the header needs. */
+  color: var(--text-2);
+  cursor: pointer;
+  transition: color var(--t-hover) ease;
+}
+/* The visible row is 18px tall, which is a fine size to read and a bad one to
+   hit. The overlay takes it to 30px in every direction without moving a pixel —
+   an invisible target is the difference between a control that works on a
+   trackpad and one that only works on a trackpad. */
+.adv-toggle::after {
+  content: "";
+  position: absolute;
+  inset: -6px;
+}
+/* Colour only, and gated: on a touch screen `:hover` sticks after a tap, so an
+   ungated rule would leave this label sitting in its hover colour until the next
+   tap somewhere else. The motion-free part of a hover still needs the gate. */
+@media (hover: hover) and (pointer: fine) {
+  .adv-toggle:hover { color: var(--text); }
+}
+.adv-toggle:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; }
+/* The arrow and the panel are one gesture, so they are timed by one pair of
+   durations. The base rule is the *closing* timing and the `[data-open]` rule is
+   the *opening* timing — that is how a CSS transition gets to be asymmetric
+   without any JavaScript: whichever rule is the destination supplies its own
+   duration.
+
+   Both directions now decelerate. The exit used to run an accelerating curve
+   (`cubic-bezier(0.4, 0, 1, 1)`) on the reasoning that departures speed up as
+   they leave. Sampled, that curve is 2% travelled at 10% of the duration and 32%
+   at the halfway mark: you click to close and for the first 60ms almost nothing
+   moves, then it lurches. That is the one shape you cannot use on a control the
+   user is looking straight at, because it spends its opening frames doing the
+   opposite of answering. Departures get to be *shorter*, not to start slow — the
+   difference between 150ms and 180ms is the asymmetry. */
+.adv-chevron {
+  transition: transform var(--t-collapse) var(--spring-soft);
+}
+.adv-toggle[data-open] .adv-chevron {
+  transform: rotate(90deg);
+  transition: transform var(--t-move) var(--spring-soft);
+}
+
+/* The reveal is a grid track going 0fr → 1fr. It cannot be a `display` swap: a
+   height of `auto` is not interpolable, and a panel that snaps open makes the
+   two groups feel like different code. 0fr is the one trick that animates a real
+   height without measuring anything in JavaScript.
+
+   `inert` (set in JSX, not here) is load-bearing: a 0fr row still contains three
+   focusable sliders, so without it the tab key would land on controls nobody can
+   see. That is the failure mode of every hand-rolled disclosure. */
+.adv-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  /* `align-self: start` is what actually makes a shut panel measure 0. A grid
+     item stretches to its row by default, so this panel would be as tall as the
+     row the group reserves for it even though its own track is 0fr — the panel
+     would look empty and still cost 8px. */
+  align-self: start;
+  /* The group's grid gap already sits above this panel; pulling it back means a
+     closed panel costs no trailing space and an open one still starts 8px below
+     the strip, with no jump on toggle. */
+  margin-block-start: calc(var(--s2) * -1);
+  /* Closing. `--t-collapse` because a panel on its way out should clear the space
+     faster than the sliders took to arrive. Same curve as the arrival, for the
+     reason spelled out above the chevron: an exit that starts slow is an exit
+     that appears not to have heard the click. */
+  transition: grid-template-rows var(--t-collapse) var(--spring-soft);
+}
+.adv-panel[data-open] {
+  grid-template-rows: 1fr;
+  /* Opening. 180ms is `--t-move`: this is a change of *position*, and the eye
+     needs to follow the row growing. It is the longest transition inside the
+     dialog and still ends before the 300ms budget where motion starts to read as
+     latency rather than response.
+
+     `--spring-soft` rather than the `--spring` this shipped with, and the choice
+     is about distance. Sampled per frame, `--spring` put 82% of the 47px growth
+     into the first 59ms and spent the remaining 120ms covering 8px the eye cannot
+     see — a snap wearing a transition as a costume. That curve is tuned for a
+     dialog crossing the viewport, where the front-load reads as weight. A row
+     that grows 18px → 47px wants the softer curve, which spreads the same 180ms
+     into a shape you can actually watch. */
+  transition: grid-template-rows var(--t-move) var(--spring-soft);
+}
+.adv-panel-inner { min-height: 0; overflow: hidden; }
+/* 8px of breathing room, applied to the sliders themselves rather than to the
+   clipped wrapper, so it is invisible while the panel is shut. */
+.adv-panel-inner > .axes { padding-block-start: var(--s2); }
+
+/* ---------- sliders ---------- */
+
+/* Three sliders side by side, read as one thing: the H, S and L of this colour.
+   Stacked, they cost 88px per group and read as three unrelated form fields;
+   across, they cost 37px and read as one control with three axes — which is
+   what they are. The label sits above the track so nothing has to be squeezed
+   into a 78px column. */
+.axes {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  /* 16px between columns, not 12: each cell right-aligns its own number, so the
+     gap is the only thing separating "0°" from the next cell's "Sat" — at 12 they
+     read as one run-on label. */
+  gap: var(--s1) var(--s4);
+  min-width: 0;
+}
+
+.axis {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-rows: auto auto;
+  align-items: center;
+  gap: 0 6px;
+  min-width: 0;
+}
+.axis-label {
+  grid-area: 1 / 1;
+  font-size: var(--fs-micro);
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.axis-value {
+  grid-area: 1 / 2;
+  font-size: var(--fs-micro);
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+  min-width: 30px;
+  text-align: end;
+}
+
+/* A 22px-high hit area around a 4px track: the thumb is allowed to be small, the
+   thing you have to touch is not. One rule set for both slider shapes — the
+   stacked `.axis` and the paired `.paxis-track` — because a thumb that is a
+   different size on one row than the next is a control you notice for the wrong
+   reason. */
+.axis input[type="range"],
+.paxis-track input[type="range"] {
+  width: 100%;
+  height: 22px;
+  appearance: none;
+  background: transparent;
+  cursor: pointer;
+  margin: 0;
+}
+.axis input[type="range"] { grid-area: 2 / 1 / 3 / 3; }
+
+.axis input[type="range"]::-webkit-slider-runnable-track,
+.paxis-track input[type="range"]::-webkit-slider-runnable-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--hairline-strong);
+}
+.axis input[type="range"]::-webkit-slider-thumb,
+.paxis-track input[type="range"]::-webkit-slider-thumb {
+  appearance: none;
+  width: 14px;
+  height: 14px;
+  margin-top: -5px;
+  border-radius: 50%;
+  background: var(--text);
+  border: 0;
+  transition: transform var(--t-tap) var(--spring);
+}
+.axis input[type="range"]:active::-webkit-slider-thumb,
+.paxis-track input[type="range"]:active::-webkit-slider-thumb { transform: scale(1.15); }
+.axis input[type="range"]::-moz-range-track,
+.paxis-track input[type="range"]::-moz-range-track {
+  height: 4px;
+  border-radius: 2px;
+  background: var(--hairline-strong);
+}
+.axis input[type="range"]::-moz-range-thumb,
+.paxis-track input[type="range"]::-moz-range-thumb {
+  width: 14px;
+  height: 14px;
+  border: 0;
+  border-radius: 50%;
+  background: var(--text);
+}
+.axis input[type="range"]:focus-visible,
+.paxis-track input[type="range"]:focus-visible { outline: 2px solid var(--accent-line); outline-offset: 2px; border-radius: 4px; }
+
+/* ---------- preview column ---------- */
+
+.set-side {
+  min-height: 0;
+  overflow-y: auto;
+  padding: var(--s5) var(--s4);
+  border-inline-start: 1px solid var(--hairline);
+  background: color-mix(in oklab, var(--canvas) 50%, transparent);
+}
+.set-side-inner { display: grid; gap: var(--s2); }
+/* Child combinator on purpose: `.preview-title` is also an h3, and a descendant
+   selector turned it into an 11px uppercase label — which is how the sample's
+   headline ended up looking like a section header. */
+.set-side-inner > h3 {
+  margin: 0;
+  font-size: var(--fs-micro);
+  font-weight: 600;
+  letter-spacing: 0.07em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.preview {
+  background: var(--surface);
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-lg);
+  padding: var(--s4);
+  display: grid;
+  gap: var(--s3);
+  font-size: var(--fs-body);
+  line-height: 1.55;
+}
+
+.preview-title { margin: 0; font-size: var(--fs-h2); font-weight: 650; letter-spacing: -0.01em; }
+.preview-body { margin: 0; color: var(--text); }
+.preview-ink { margin: 0; font-size: var(--fs-ui); line-height: 1.9; }
+.preview-fill { display: flex; flex-wrap: wrap; gap: 6px; margin: 0; }
+.preview-highlight {
+  font-size: var(--fs-ui);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+.preview-callout {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+  border-radius: var(--radius);
+  font-size: var(--fs-ui);
+  line-height: 1.5;
+}
+.preview-list { display: grid; gap: 4px; margin: 0; padding: 0; list-style: none; font-size: var(--fs-ui); }
+.preview-list li { display: flex; align-items: center; gap: 8px; }
+.preview-list input[type="checkbox"] { accent-color: var(--checkbox); }
+.preview-links { display: flex; flex-wrap: wrap; align-items: center; gap: var(--s2) var(--s3); margin: 0; font-size: var(--fs-ui); }
+/* Without this, a narrow column breaks "A link" across two lines and the row
+   reads as a column of debris. */
+.preview-links > * { flex: 0 0 auto; white-space: nowrap; }
+.preview-links a { color: var(--accent); text-decoration: none; border-bottom: 1px solid var(--accent-line); }
+.preview-button {
+  padding: 5px 12px;
+  border-radius: var(--radius-sm);
+  background: var(--accent);
+  color: var(--canvas);
+  font-size: var(--fs-meta);
+  font-weight: 600;
+}
+.preview-selected {
+  padding: 3px 8px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent-strong);
+  font-size: var(--fs-meta);
+}
+
+/* ---------- narrow: the rail lies down ---------- */
+
+@media (max-width: 860px) {
+  .panel-settings {
+    width: 100%;
+    max-height: 94dvh;
+  }
+
+  /* One column that scrolls as a whole. Without `flex: 0 0 auto` the children
+     are allowed to shrink to fit the dialog, and since the panel's content is
+     taller than the panel they collapse to their minimums instead of scrolling. */
+  .set-shell {
+    display: flex;
+    flex-direction: column;
+    overflow-y: auto;
+  }
+  .set-shell > * { flex: 0 0 auto; }
+
+  /* The rail becomes a horizontal bar above the controls. `display: contents` on
+     the group and the list is what flattens it: the caption disappears (nothing
+     to caption a single row with) and every row becomes a direct child of the
+     rail, so it is one scrollable line rather than a column of blocks. */
+  .set-rail {
+    flex-direction: row;
+    align-items: center;
+    gap: var(--s1);
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: var(--s2) var(--s4);
+    border-inline-end: 0;
+    border-block-end: 1px solid var(--hairline);
+  }
+  .set-rail-group,
+  .set-rail-list { display: contents; }
+  .set-rail-caption { display: none; }
+  .set-rail-row { width: auto; padding: 0 10px; white-space: nowrap; }
+
+  .set-body { overflow: visible; padding: var(--s4) var(--s4) var(--s3); }
+
+  /* The preview goes under the controls and is allowed to scroll away, which is
+     the opposite of what it does on a desktop. Pinning it was the first attempt
+     and it was wrong on both counts: at phone width the sample needs ~140px of a
+     744px screen to say anything useful, and every useful line in it (the nine
+     ink words, the nine fill chips) is the same nine colours as the strip sitting
+     directly below it. On a phone the strips are the live feedback — they are the
+     colours, at full size — and the preview is the check you make at the end. */
+  .set-side {
+    overflow: visible;
+    padding: 0 var(--s4) var(--s4);
+    border-inline-start: 0;
+    border-top: 1px solid var(--hairline);
+    background: none;
+  }
+}
+
+@media (max-width: 560px) {
+  /* Only a button that still has an icon may drop its words; "Reset all" has no
+     icon, so it keeps them rather than becoming an empty pill. */
+  .set-btn-label { display: none; }
+  .set-hint { font-size: var(--fs-micro); }
+  .axes { gap: var(--s1) var(--s2); }
+  /* Three tracks in a phone column are ~106px each, which is not enough for
+     "Lightness 72%" on one line — the label ellipsised to "Lightne…". The
+     readout drops under the label instead of fighting it for the row. */
+  .axis {
+    grid-template-columns: minmax(0, 1fr);
+    font-size: var(--fs-micro);
+  }
+  .axis-label { grid-area: 1 / 1; }
+  .axis-value { grid-area: 2 / 1; padding-inline-start: 0; }
+  .axis input[type="range"] { grid-area: 3 / 1; }
+
+  /* The pair stays side by side even here: two 118px tracks are still draggable,
+     and stacking them would put the comparison this control exists for back
+     behind a scroll. */
+  .pair-head,
+  .paxis { grid-template-columns: 30px minmax(0, 1fr) minmax(0, 1fr); gap: var(--s1) 6px; }
+  .paxis-track { gap: 4px; }
+  .paxis-track .axis-value { min-width: 24px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .swatch,
+  .swatch::before,
+  .set-btn,
+  .set-rail-row,
+  .set-rail-row svg,
+  .adv-chevron,
+  .adv-panel,
+  .axis input[type="range"]::-webkit-slider-thumb,
+  .paxis-track input[type="range"]::-webkit-slider-thumb {
+    transition-duration: 1ms;
+  }
+  /* The press-scale is feedback, not decoration, but a 0.94 jump on every tap
+     is exactly the kind of thing this setting exists to remove. */
+  .swatch:active,
+  .swatch:hover,
+  .set-rail-row:active { transform: none; }
+}

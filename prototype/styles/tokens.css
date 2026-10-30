@@ -1,0 +1,135 @@
+/* Raspberry — design tokens
+   B18 reskin prototype. Dark is the default surface; light is a full sibling,
+   not an afterthought, so B20 can wire the toggle without re-doing the palette. */
+
+:root {
+  color-scheme: dark;
+
+  /* ---- type ---- */
+  --font-ui: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI Variable Text",
+    "Segoe UI", Roboto, sans-serif;
+  /* The warmth the old build put into poems now lives in the title's typeface. */
+  --font-title: "Iowan Old Style", "Palatino Linotype", Palatino, "Book Antiqua",
+    Georgia, serif;
+  --font-mono: ui-monospace, "Cascadia Code", "SF Mono", Menlo, Consolas, monospace;
+
+  --fs-micro: 11px;   /* caps labels, kbd */
+  --fs-meta: 12px;    /* word count, timestamps */
+  --fs-ui: 13px;      /* sidebar rows, buttons */
+  --fs-body: 16px;    /* editor body */
+  --fs-h3: 17.5px;
+  --fs-h2: 21px;
+  --fs-h1: 26px;
+  --fs-title: clamp(30px, 3.2vw, 40px);
+
+  --lh-body: 1.65;
+  --lh-tight: 1.18;
+
+  /* ---- space ---- */
+  --s1: 4px;
+  --s2: 8px;
+  --s3: 12px;
+  --s4: 16px;
+  --s5: 24px;
+  --s6: 32px;
+  --s7: 48px;
+
+  /* ---- shell ---- */
+  --sidebar-w: 264px;
+  --topbar-h: 48px;
+  --row-h: 30px;
+  --radius-sm: 5px;
+  --radius: 8px;
+  --radius-lg: 12px;
+  --measure: 708px;
+
+  /* ---- dark (default) ---- */
+  --canvas: #0d0c0c;
+  --canvas-fade: rgba(13, 12, 12, 0.92);
+  --surface: #151414;
+  --raised: #191818;
+  --elevated: #201e1e;
+  --sunken: #0a0909;
+
+  --hairline: rgba(255, 255, 255, 0.075);
+  --hairline-strong: rgba(255, 255, 255, 0.13);
+
+  --text: #eceae7;
+  --text-2: #a6a29c;
+  --text-3: #7d7972; /* 12px meta needs >= 4.5:1 on --canvas; #6b6761 was 3.5:1 */
+
+  --hover: rgba(255, 255, 255, 0.04);
+  --hover-strong: rgba(255, 255, 255, 0.07);
+
+  --accent: #f07c97;
+  --accent-strong: #ff9ab0;
+  --accent-soft: rgba(240, 124, 151, 0.12);
+  --accent-line: rgba(240, 124, 151, 0.42);
+
+  --danger: #f2777f;
+  --warn: #e0b062;
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow: 0 8px 24px rgba(0, 0, 0, 0.45), 0 1px 3px rgba(0, 0, 0, 0.4);
+  --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.6), 0 2px 10px rgba(0, 0, 0, 0.45);
+
+  --scrim: rgba(6, 6, 6, 0.46);
+}
+
+[data-theme="light"] {
+  color-scheme: light;
+
+  --canvas: #faf9f7;
+  --canvas-fade: rgba(250, 249, 247, 0.9);
+  --surface: #f3f2ef;
+  --raised: #ffffff;
+  --elevated: #ffffff;
+  --sunken: #f0efeb;
+
+  --hairline: rgba(24, 22, 20, 0.09);
+  --hairline-strong: rgba(24, 22, 20, 0.16);
+
+  --text: #1b1a18;
+  --text-2: #5b5852;
+  --text-3: #736f68;
+
+  --hover: rgba(24, 22, 20, 0.04);
+  --hover-strong: rgba(24, 22, 20, 0.07);
+
+  --accent: #a8324f;
+  --accent-strong: #8c2640;
+  --accent-soft: rgba(168, 50, 79, 0.09);
+  --accent-line: rgba(168, 50, 79, 0.35);
+
+  --danger: #b8333d;
+  --warn: #9a6a12;
+
+  --shadow-sm: 0 1px 2px rgba(24, 22, 20, 0.07);
+  --shadow: 0 8px 24px rgba(24, 22, 20, 0.1), 0 1px 3px rgba(24, 22, 20, 0.08);
+  --shadow-lg: 0 24px 64px rgba(24, 22, 20, 0.16), 0 2px 10px rgba(24, 22, 20, 0.08);
+
+  --scrim: rgba(24, 22, 20, 0.28);
+}
+
+/* Motion: one place to change, and a real reduced-motion path rather than
+   "animation: none" that leaves the UI feeling broken. */
+:root {
+  --spring: cubic-bezier(0.32, 0.72, 0, 1); /* critically-damped feel, no overshoot */
+  --spring-soft: cubic-bezier(0.22, 0.61, 0.36, 1);
+  --t-tap: 90ms;
+  --t-hover: 130ms;
+  --t-layer: 220ms;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :root {
+    --t-tap: 1ms;
+    --t-hover: 1ms;
+    --t-layer: 1ms;
+  }
+}
+@media (prefers-reduced-transparency: reduce) {
+  :root {
+    --topbar-blur: none;
+  }
+}
