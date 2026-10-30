@@ -175,6 +175,16 @@ Two notes worth keeping, because the reasoning has changed since they were parke
 - The tab strip is empty in server-rendered HTML. No layout shift, but no SSR tabs.
 - Nothing verified against a screen reader; mobile checked at 390px by automated probe.
 - Authentication has never run against a real mail provider or a public origin.
+- **The owner's trash holds ~194 pages created by automated runs, and nobody has decided
+  what to do with them.** `data/raspberry.sqlite` contains 16 live pages and 194 soft-deleted
+  ones, created 25–30 October by CDP probes pointed at the live instance (repeating
+  `Untitled` / `Alpha` / `Beta` / `Ship the table`, batch id `cleanup-1793362212300` among
+  them). The live workspace is intact; the junk is all in the trash. **They are not deleted,
+  and must not be.** `docs/TESTING.md` forbids deleting pages by pattern, title, date or
+  emptiness, and that rule exists because a previous tidy-up destroyed pages the owner had
+  written. Emptying that trash is the owner's decision, taken by id, in one explicit batch.
+  The write path that produced them is now closed by the live-write guard in
+  `scripts/browser-session.mjs`.
 
 ## Explicitly cancelled
 

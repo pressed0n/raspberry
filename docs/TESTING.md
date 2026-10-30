@@ -97,8 +97,8 @@ The pattern it encodes, learned the hard way:
 - Use a throwaway profile under `artifacts/.chrome-<port>/` so the owner's session is never
   touched — **and remove it on exit.** 292 probes did not, and the leftovers reached 371,607
   files / 14.6 GB in a gitignored directory, which made a recursive search from the repo root
-  time out. `cdp-session.mjs` deletes the profile on `close()`, on throw, and on Ctrl+C;
-  `scripts/check-docs.mjs` fails if one is left behind. The 28 scratch probes predate this and
+  time out. `browser-session.mjs` deletes the profile on `close()`, on throw, and on Ctrl+C;
+  `scripts/check-docs.mjs` fails if one is left behind. The scratch probes predate this and
   still leak.
 - Navigate to `http://127.0.0.1:3000/#<page-id>` — the hash **is** the deep link.
 - Drive with real input events (`Input.dispatchMouseEvent`), not `element.click()`.
@@ -106,6 +106,32 @@ The pattern it encodes, learned the hard way:
 - Run at **1400, 900 and 390** pixels. Layout compromises are width-dependent: below 860px
   the database gutter deliberately becomes a real first column, and the assertion flips
   with it.
+
+### The live instance refuses writes, in code
+
+`openBrowser()` launches Chrome at `about:blank`, registers a guard with
+`Page.addScriptToEvaluateOnNewDocument`, and only then navigates. If the target port is the
+live one (3000, override with `RASPBERRY_LIVE_PORT`), every non-GET `fetch` and every
+`sendBeacon` is rejected before it leaves the browser:
+
+```
+REFUSED by scripts/browser-session.mjs: 127.0.0.1:3000 is the LIVE instance and a probe may
+not POST /api/pages. Point BASE and DATABASE_URL at a disposable copy (docs/TESTING.md).
+```
+
+This exists because the rule above was only a paragraph, and a paragraph did not stop it: on
+30 October the owner's database was found holding **194 trashed pages** — `Untitled`, `Alpha`,
+`Beta`, `Ship the table` in repeating loops, created in batches and swept under the batch id
+`cleanup-1793362212300`. The writes went straight into `data/raspberry.sqlite`.
+
+Reads still work, which is what the read-only probes need. When a probe genuinely must write
+to live, it says so — `openBrowser({ allowMutations: true })` — and the session prints a
+`WARNING mutations are ALLOWED` line, so it appears in the transcript instead of discovering
+itself later in the database. `b.blockedWrites()` returns what the guard refused; assert it
+is empty at the end of a read-only probe.
+
+A probe that clicks `New page`, types a title and presses Enter now fails loudly on the live
+instance instead of quietly leaving a page behind. That is the intended outcome.
 
 ```powershell
 node scripts/verify-db-gutter.mjs 1400 900            # new, tracked-style probe

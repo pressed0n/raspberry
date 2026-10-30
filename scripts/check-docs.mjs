@@ -250,6 +250,38 @@ if (mapText === null) {
     fail(`docs/MAP.md does not mention scripts/${unmentionedScripts.join(", scripts/")}.`);
   }
 
+  /* Counts in prose rot in silence. `--full` printed OK while MAP.md claimed "129 files"
+     (131), "31 test files" (32) and "13 real tools" (16), because the only numbers ever
+     checked were the ones inside STATE.md's snapshot block. A number MAP states about the
+     tree is asserted here; a number that cannot be checked is removed, not guessed —
+     `scripts/scratch/`'s count went stale inside a single session. */
+  const countOf = (dir, filter) => {
+    if (!existsSync(join(root, dir))) return null;
+    let n = 0;
+    const walkDir = (rel) => {
+      for (const e of readdirSync(join(root, rel), { withFileTypes: true })) {
+        if (e.isDirectory()) walkDir(`${rel}/${e.name}`);
+        else if (!filter || filter(e.name)) n++;
+      }
+    };
+    walkDir(dir);
+    return n;
+  };
+  const claimedCounts = [
+    { re: /(\d+)\s+files\.\s*\|/, actual: () => countOf("src"), what: "files in src/" },
+    { re: /(\d+)\s+test files/, actual: () => testFiles.length, what: "test files" },
+    { re: /(\d+)\s+real tools/, actual: () => scriptFiles.length, what: "tracked scripts" },
+    { re: /(\d+)\s+gitignored one-off probes/, actual: () => countOf("scripts/scratch"), what: "scratch probes" },
+  ];
+  for (const { re, actual, what } of claimedCounts) {
+    const m = mapText.match(re);
+    if (!m) continue; // not stated, or a synthetic fixture — nothing to contradict
+    const truth = actual();
+    if (truth !== null && Number(m[1]) !== truth) {
+      fail(`docs/MAP.md says ${m[1]} ${what}; the tree holds ${truth}.`);
+    }
+  }
+
   // The launcher is the only supported way to start the app on the owner's machine; if MAP
   // stops naming it, a session will invent a dev-server invocation and hit a stale-instance 500.
   if (!mapText.includes("Start-Raspberry.cmd")) {
@@ -299,6 +331,55 @@ if (existsSync(artifactsDir)) {
       `artifacts/qa-run is left over from a probe run that was killed before its finally block. ` +
         `It carries a second database and a stale copy of src/, so it must not be probed against. ` +
         `Delete it: rd /s /q artifacts\\qa-run — run-b40-probe.ps1 rebuilds it.`
+    );
+  }
+
+  /* The owner's database must never live in a folder that every document describes as
+     disposable evidence. Two full snapshots (30 MB, 25 and 16 pages) sat in artifacts/ until
+     30 October, one `rd /s /q artifacts\\*` away from being deleted by the very instructions
+     written to clean the place up. `pnpm backup` already owns the correct destination. */
+  const strayDatabases = existsSync(artifactsDir)
+    ? readdirSync(artifactsDir).filter((name) => /\.sqlite(-shm|-wal)?$/.test(name))
+    : [];
+  if (strayDatabases.length) {
+    fail(
+      `artifacts/ holds ${strayDatabases.length} SQLite file(s): ${strayDatabases.join(", ")}. ` +
+        `artifacts/ is disposable evidence — the docs tell sessions to delete it. Owner data ` +
+        `belongs in data/backups/ (write one with: pnpm backup). Move it, never delete it.`
+    );
+  }
+}
+
+/* A stale pass count in the working directory is worse than a missing one. `tests.out.log`
+   sat at the root claiming "pass 397" while the suite ran 415, and a session that greps the
+   root finds that number before it finds docs/STATE.md. The dev server's own console is
+   allowed, because a detached server holds those two files open; anything else is litter
+   that quotes a number nobody recomputed. */
+const ROOT_LOG_ALLOWLIST = new Set(["dev.out.log", "dev.err.log"]);
+const rootLogs = readdirSync(root)
+  .filter((name) => /\.(log|err|out)$/.test(name))
+  .filter((name) => !ROOT_LOG_ALLOWLIST.has(name));
+if (rootLogs.length) {
+  fail(
+    `the repo root holds ${rootLogs.join(", ")}. Files named *.log/*.out/*.err at the root are ` +
+      `stale run output quoting numbers nobody recomputed — the last one claimed "pass 397" ` +
+      `beside 415 real tests. Pipe test output into artifacts/ or do not keep it. ` +
+      `(Only dev.out.log and dev.err.log are allowed: a detached dev server holds those open.)`
+  );
+}
+
+/* The live-write guard is the only thing standing between a CDP probe and the owner's
+   database. It is four lines of setup; deleting it restores the bug it was written for —
+   which left 194 trashed pages in data/raspberry.sqlite, created and then swept by a script. */
+const browserSessionPath = join(root, "scripts", "browser-session.mjs");
+const browserSession = existsSync(browserSessionPath) ? readFileSync(browserSessionPath, "utf8") : null;
+for (const marker of ["LIVE WRITE GUARD", "Page.addScriptToEvaluateOnNewDocument", "allowMutations"]) {
+  if (browserSession === null) break; // synthetic fixture: the helper is not part of it
+  if (!browserSession.includes(marker)) {
+    fail(
+      `scripts/browser-session.mjs no longer contains "${marker}". Without it a probe opened ` +
+        `against http://127.0.0.1:3000 can POST/PATCH/DELETE into data/raspberry.sqlite — which ` +
+        `is how 194 fixture pages ended up in the owner's trash. See docs/TESTING.md.`
     );
   }
 }

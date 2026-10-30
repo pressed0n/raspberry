@@ -46,13 +46,13 @@ not on PATH here, so the invocations above are the ones that work.
 
 | Path | What it is | Read it when |
 |---|---|---|
-| `src/` | The app. Next.js App Router + React 19. 129 files. | Always. |
-| `tests/` | 31 test files + `schema.ts` helper. `tsx --test`. | Before and after any change. |
+| `src/` | The app. Next.js App Router + React 19. 131 files. | Always. |
+| `tests/` | 32 test files + `schema.ts` helper. `tsx --test`. | Before and after any change. |
 | `docs/` | `STATE.md` (truth), `MAP.md` (this), `DECISIONS.md` (why), `TESTING.md` (how to prove), `ARCHIVE/` (history). | First, in that order. |
-| `scripts/` | 13 real tools, documented in §7. | To run or verify something. |
-| `scripts/scratch/` | 74 gitignored one-off probes, incl. the 28 `cdp-*.mjs` browser probes. Evidence, not tooling. Import `scripts/browser-session.mjs` for new ones. | Only to read a past measurement. |
-| `data/` | Gitignored. `raspberry.sqlite` is **the owner's live database**, plus `uploads/<sha>` blobs, `logs/`, `archive/`. | Never casually. §8. |
-| `artifacts/` | Gitignored test evidence: screenshots, DB snapshots. Was 14.6 GB of leaked Chrome profiles — see §9. | Rarely. |
+| `scripts/` | 17 real tools, documented in §7. | To run or verify something. |
+| `scripts/scratch/` | Gitignored one-off probes, incl. the `cdp-*.mjs` browser probes. Evidence, not tooling — no counts here, because the number changes every session. Import `scripts/browser-session.mjs` for new ones. | Only to read a past measurement. |
+| `data/` | Gitignored. `raspberry.sqlite` is **the owner's live database**, plus `uploads/<sha>` blobs, `logs/`, `archive/`, and **`backups/`** — restore points, written by `pnpm backup`. | Never casually. §8. |
+| `artifacts/` | Gitignored test evidence: screenshots and probe logs. **Never a database** — this folder is documented as disposable, so owner data in it is one `rd /s /q` from gone. Was 14.6 GB of leaked Chrome profiles — see §9. | Rarely. |
 | `deploy/` | `raspberry.service` unit for running the built app as a Windows service via `scripts/install-service.ps1`. | Only for "run it as a service". |
 | `prototype/` | Standalone HTML explorations. Not imported by the app, not built, not tested. | Only when the owner points at it. |
 | `src/app/*.css` | Eight stylesheets, each with one owner. §5. | Any visual change. |
@@ -339,6 +339,7 @@ and use `scripts/browser-session.mjs` so the browser profile cleans itself up.
 | `scripts/gen-palette.mjs` | Regenerates the colour palette data used by `src/lib/palette.ts` |
 | `scripts/browser-session.mjs` | **Tracked CDP browser session** for UI verification; removes its own Chrome profile |
 | `scripts/verify-db-gutter.mjs` | The canonical row-gutter probe (20 assertions, 1400/390): alignment, reuse-by-pixel, heights |
+| `scripts/verify-live-write-guard.mjs` | Proves the live-write guard **is installed and refusing**: a GET succeeds on :3000, a POST is rejected before it leaves the browser, and the page count is unchanged before/after. Run after touching `browser-session.mjs` |
 | `scripts/verify-database-b40.mjs` | Proves the table's write gestures **without writing**: patches `window.fetch` in the page, asserts the bodies the UI builds, and can let one real `PATCH` through on a disposable instance (`ALLOW_WRITES=1`, the 409 and the "Clear 2 cells" answer) |
 | `scripts/seed-qa.mjs` | Seeds a disposable instance (`BASE` env, default :3100) with one page holding one database: a title column, a text column, three rows. Used by `run-b40-probe.ps1`. Never points at `data/raspberry.sqlite` |
 | `scripts/run-b40-probe.ps1` | Starts a disposable copy of the app on :3100 from `artifacts/qa-run/`, seeds it, runs `verify-database-b40.mjs` at 1400×900 and 390×844, stops it. The owner's database is never touched |

@@ -47,9 +47,79 @@ function killProfile(profile) {
   }
 }
 
-export async function openBrowser({ width = 1400, height = 900, url, chrome = CHROME_DEFAULT, headless = true } = {}) {
+// LIVE WRITE GUARD
+//
+// On 30 October the owner's live database was found holding 194 trashed pages — repeated
+// loops of "Untitled" / "Alpha" / "Beta" / "Ship the table", created in batches and swept by
+// a script's own id (`cleanup-1793362212300`). No tracked probe did it; a CDP script pointed
+// at http://127.0.0.1:3000 did, and nothing stopped it, because the only rule against it was
+// a paragraph in docs/TESTING.md.
+//
+// So the rule is now code. A session opened against the LIVE port installs a fetch guard
+// before the app's first script runs: any non-GET is refused with an error naming the URL
+// and pointing at the disposable instance. Reads still work, which is what the read-only
+// probes need. A probe that genuinely must write passes { allowMutations: true } and the
+// session prints a warning, so it shows up in the transcript instead of in the database.
+const LIVE_PORTS = new Set(
+  (process.env.RASPBERRY_LIVE_PORT ?? "3000").split(",").map((p) => Number(p.trim())),
+);
+
+function portOf(rawUrl) {
+  try {
+    const u = new URL(rawUrl);
+    return Number(u.port || (u.protocol === "https:" ? 443 : 80));
+  } catch {
+    return Number.NaN;
+  }
+}
+
+/** Injected before any page script. Refuses every mutation, and records the attempt. */
+function writeGuardSource(host) {
+  return `(() => {
+  if (window.__raspberryWriteGuard) return;
+  const blocked = [];
+  window.__raspberryWriteGuard = blocked;
+  const refuse = (method, url) => {
+    blocked.push(method + " " + url);
+    return Promise.reject(new Error(
+      "REFUSED by scripts/browser-session.mjs: " + location.host +
+      " is the LIVE instance and a probe may not " + method + " " + url +
+      ". Point BASE and DATABASE_URL at a disposable copy (docs/TESTING.md), " +
+      "or pass { allowMutations: true } if writing here is deliberate."
+    ));
+  };
+  const realFetch = window.fetch;
+  window.fetch = function (input, init) {
+    const method = String((init && init.method) || (input && input.method) || "GET").toUpperCase();
+    if (method !== "GET" && method !== "HEAD" && method !== "OPTIONS") {
+      const url = typeof input === "string" ? input : (input && input.url) || "";
+      return refuse(method, url);
+    }
+    return realFetch.apply(this, arguments);
+  };
+  if (navigator.sendBeacon) {
+    navigator.sendBeacon = () => { blocked.push("BEACON"); return false; };
+  }
+  window.__raspberryWriteGuardHost = ${JSON.stringify(host)};
+})();`;
+}
+
+export async function openBrowser({
+  width = 1400,
+  height = 900,
+  url,
+  chrome = CHROME_DEFAULT,
+  headless = true,
+  allowMutations = false,
+} = {}) {
   if (!url) throw new Error("openBrowser needs a url");
   mkdirSync("artifacts", { recursive: true });
+
+  const liveTarget = LIVE_PORTS.has(portOf(url));
+  const guardWrites = liveTarget && !allowMutations;
+  if (liveTarget && allowMutations) {
+    console.log(`  WARNING mutations are ALLOWED against the live instance at ${url}`);
+  }
 
   const port = 9200 + Math.floor(Math.random() * 500);
   const profile = join(process.cwd(), "artifacts", `.chrome-${port}`);
@@ -65,7 +135,9 @@ export async function openBrowser({ width = 1400, height = 900, url, chrome = CH
     "--hide-scrollbars",
     "--force-device-scale-factor=1",
     `--window-size=${width},${height}`,
-    url,
+    // Deliberately NOT the url: Chrome is pointed at about:blank so the write guard can be
+    // registered before the app's first script runs. Navigating first loses that race.
+    "about:blank",
   ].filter(Boolean);
 
   const child = spawn(chrome, args, { stdio: "ignore" });
@@ -116,6 +188,11 @@ export async function openBrowser({ width = 1400, height = 900, url, chrome = CH
   await send("Page.enable");
   await send("DOM.enable");
 
+  if (guardWrites) {
+    await send("Page.addScriptToEvaluateOnNewDocument", { source: writeGuardSource(url) });
+  }
+  await send("Page.navigate", { url });
+
   let pass = 0;
   let fail = 0;
   const failures = [];
@@ -129,6 +206,17 @@ export async function openBrowser({ width = 1400, height = 900, url, chrome = CH
     profile,
     send,
     evaluate,
+    guarded: guardWrites,
+
+    /** Every mutation the guard refused, e.g. ["POST /api/pages"]. Empty is the good case. */
+    async blockedWrites() {
+      if (!guardWrites) return [];
+      try {
+        return (await evaluate("window.__raspberryWriteGuard ? window.__raspberryWriteGuard.slice() : []")) ?? [];
+      } catch {
+        return [];
+      }
+    },
 
     async waitFor(expression, { timeoutMs = 10000, label = expression } = {}) {
       const steps = Math.ceil(timeoutMs / 250);
