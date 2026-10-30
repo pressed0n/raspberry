@@ -19,7 +19,7 @@ keeps it from rotting the way its predecessors did.
 
 - **Tests:** 397 passing, 0 failing, across 31 test files.
 - **Typecheck:** `tsc --noEmit` clean.
-- **Committed through:** `376cd87` — fix: make the context layer verifiable, and unblock the repo root.
+- **Committed through:** `28acaba` — docs: add the contracts the second audit found missing, and fix its five errors.
 - **Schema:** migrations 1–7.
 - **Working tree:** clean.
 <!-- SNAPSHOT:END -->
