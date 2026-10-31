@@ -19,9 +19,9 @@ keeps it from rotting the way its predecessors did.
 
 - **Tests:** 499 passing, 0 failing, across 39 test files.
 - **Typecheck:** `tsc --noEmit` clean.
-- **Committed through:** `e485259` — docs(testing): stop recommending the probe that leaks its Chrome profile.
+- **Committed through:** `f7b7ce2` — feat(database): B42 tags, status groups and dates; B40m/n submenus; B42b-e.
 - **Schema:** migrations 1–7.
-- **Working tree:** dirty (uncommitted work in progress).
+- **Working tree:** clean.
 <!-- SNAPSHOT:END -->
 
 Run it yourself, it takes four seconds:
