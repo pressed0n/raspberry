@@ -196,3 +196,120 @@ export function formatCell(property: Pick<PropertyDef, "type" | "config">, value
   const spec = resolveProperty(property);
   return spec.format(value, (property.config ?? {}) as Record<string, unknown>);
 }
+
+/* ---------------------------------------------------------------------------
+   How a sort explains itself
+   ---------------------------------------------------------------------------
+   "A → Z" is a claim about the comparison, and it is only true for the types that
+   compare as text. A number column sorted ascending is not A to Z; neither is a
+   date column. The wording lives here, beside the registry, because it is a fact
+   about the *type* — the same reason `label` and `format` do.
+
+   `kind` is not decoration either: the arrow drawn beside a sorted header is the
+   same claim in a glyph, and a column of numbers showing `ArrowUpAZ` is the
+   original bug in a smaller font. Views map the kind to an icon; nothing else
+   may guess.
+   --------------------------------------------------------------------------- */
+
+export type SortKind = "alpha" | "ordered";
+
+export function sortKind(type: PropertyType): SortKind {
+  switch (type) {
+    case "number":
+    case "date":
+    case "createdTime":
+    case "checkbox":
+      return "ordered";
+    default:
+      return "alpha";
+  }
+}
+
+export type SortLabels = { ascending: string; descending: string; manual?: string };
+
+/**
+ * The three ways a column can be ordered, named for the comparison that will run.
+ *
+ * `manual` is present only for the types that own a sequence — see
+ * `PropertyTypeSpec.order`. The menu reads its presence as "show the row", so a type
+ * cannot advertise an order it cannot produce, and a type that gains one gets the row
+ * without anyone editing the menu.
+ */
+export function sortLabels(type: PropertyType): SortLabels {
+  const labels = baseSortLabels(type);
+  return registry[type]?.order ? { ...labels, manual: "Manual order" } : labels;
+}
+
+function baseSortLabels(type: PropertyType): SortLabels {
+  switch (type) {
+    case "number":
+      return { ascending: "Low → High", descending: "High → Low" };
+    case "date":
+    case "createdTime":
+      return { ascending: "Earliest → Latest", descending: "Latest → Earliest" };
+    case "checkbox":
+      return { ascending: "Unchecked first", descending: "Checked first" };
+    default:
+      return { ascending: "A → Z", descending: "Z → A" };
+  }
+}
+
+/* ---------------------------------------------------------------------------
+   Currencies
+   ---------------------------------------------------------------------------
+   Presentation only — nothing converts, and the stored value is the number that
+   was typed. `currencySymbol` asks `Intl` rather than carrying a table of glyphs,
+   so the symbol on the menu row is the exact one the cell will render with, in
+   the reader's own locale. A code `Intl` rejects falls back to the code itself,
+   which is what the formatter does too.
+   --------------------------------------------------------------------------- */
+
+export const currencies = [
+  { code: "USD", name: "US dollar" },
+  { code: "EUR", name: "Euro" },
+  { code: "GBP", name: "British pound" },
+  { code: "JPY", name: "Japanese yen" },
+  { code: "CNY", name: "Chinese yuan" },
+  { code: "INR", name: "Indian rupee" },
+  { code: "AUD", name: "Australian dollar" },
+  { code: "CAD", name: "Canadian dollar" },
+  { code: "CHF", name: "Swiss franc" },
+  { code: "SEK", name: "Swedish krona" },
+  { code: "PLN", name: "Polish złoty" },
+  { code: "BRL", name: "Brazilian real" },
+] as const;
+
+export function currencySymbol(code: string): string {
+  try {
+    const parts = new Intl.NumberFormat(undefined, {
+      style: "currency",
+      currency: code,
+      currencyDisplay: "narrowSymbol",
+    }).formatToParts(0);
+    return parts.find((part) => part.type === "currency")?.value ?? code;
+  } catch {
+    return code;
+  }
+}
+
+/* The number formats, in the order a menu should list them. The *sample* beside each
+   one is not listed here on purpose: the menu renders it with `formatCell` and the
+   column's own config, so the number a person is shown is the number they will get.
+   A hand-written "1,234" would be an English guess in every other locale. */
+export const numberFormatChoices = [
+  { format: "number", label: "Number" },
+  { format: "separators", label: "Number with separators" },
+  { format: "percent", label: "Percentage" },
+  { format: "duration", label: "Duration" },
+] as const;
+
+/* The date formats, in the order the menu lists them — and the same rule about samples:
+   the row above carries the one sample, rendered through `formatCell` with this column's
+   config, because four previews beside four labels would truncate every label in a 200px
+   submenu (the number menu paid for that lesson). */
+export const dateFormatChoices = [
+  { format: "long", label: "Month day, year" },
+  { format: "mdy", label: "Month/day/year" },
+  { format: "dmy", label: "Day/month/year" },
+  { format: "iso", label: "Year-month-day" },
+] as const;

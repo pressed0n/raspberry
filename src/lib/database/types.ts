@@ -69,11 +69,14 @@ export type PropertyOption = z.infer<typeof optionSchema>;
 
 /* Status groups. Notion locks To-do / In progress / Complete; the wishlist
    explicitly wants them editable, so the defaults are seeded and then ordinary
-   data. */
+   data. `checked` is a *label* — the table draws a checked box before the chip of a
+   tag whose group says so — and nothing about it filters or moves anything.
+   `property-types/groups.ts` owns what an unstored column reads as. */
 export const statusGroupSchema = z.object({
   id: z.string().min(1),
   name: z.string().max(200),
   color: z.enum(tagColors).default("default"),
+  checked: z.boolean().default(false),
 });
 export type StatusGroup = z.infer<typeof statusGroupSchema>;
 
@@ -163,9 +166,17 @@ export const filterSchema = z.object({
   value: jsonSchema.default(null),
 });
 
+/* `manual` is the third direction, and it is not a synonym for the other two: it asks a
+   type for the order a *person* arranged — the sequence the tags sit in inside the
+   dropdown, which is the only order a Select column has that nobody can derive from the
+   values. A type without such a sequence (`PropertyTypeSpec.order`) ignores it and falls
+   back to `compare`, so a stored view can never be left with a sort that means nothing. */
+export const sortDirections = ["ascending", "descending", "manual"] as const;
+export type SortDirection = (typeof sortDirections)[number];
+
 export const sortSchema = z.object({
   propertyId: z.string().min(1),
-  direction: z.enum(["ascending", "descending"]).default("ascending"),
+  direction: z.enum(sortDirections).default("ascending"),
 });
 
 export const groupSchema = z.object({

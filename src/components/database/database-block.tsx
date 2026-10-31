@@ -154,6 +154,24 @@ export function DatabaseBlock({ props }: { props: Record<string, unknown> }) {
     void mutations.patchProperty(propertyId, { icon });
   }, [mutations]);
 
+  /* How a column presents its values.
+     ------------------------------------------------------------------------------
+     `patchProperty` sends a config that the server **parses whole**, filling every key
+     it does not find with that type's default. So the menu's two-key change ("format",
+     "currency") must be merged onto the config as it stands, here — sending just the
+     two keys would silently reset the column's decimal places and every key added
+     later to the same object.
+
+     It returns the write, and that return value is load-bearing. Creating a tag is
+     this call followed by a cell write naming the new option id, and the server's
+     `coerce` resolves that id against the config — so the cell must not be written
+     until this has landed, or the tag is written as empty and silently disappears. */
+  const configProperty = useCallback((propertyId: string, patch: Record<string, unknown>) => {
+    const property = database?.properties.find((candidate) => candidate.id === propertyId);
+    if (!property) return Promise.resolve(null);
+    return mutations.patchProperty(propertyId, { config: { ...(property.config ?? {}), ...patch } });
+  }, [mutations, database?.properties]);
+
   /* Changing what a column holds.
      ------------------------------------------------------------------------------
      The server reads every stored value through the new type and refuses the change
@@ -271,6 +289,18 @@ export function DatabaseBlock({ props }: { props: Record<string, unknown> }) {
      effect with `[]` would attach to nothing and never run again. */
   const guardPresses = useCallback((node: HTMLDivElement | null) => {
     if (!node) return;
+    /* Attached to the *band* the block occupies, not to `.db-block` itself.
+       The owner: "There is still a very small hitbox at the top of the database block
+       that when pressed will highlight the database object". It was six pixels: the
+       editor's `.bn-editor .bn-block-content { padding: 2px 0 }` plus this block's own
+       `margin: 4px 0`. A **margin is not hit-testable** — those pixels belong to
+       `.bn-block-content`, which is inside `.tiptap`, so ProseMirror's own handler saw a
+       press on the database node and built the very `NodeSelection` this guard exists to
+       prevent. A guard on `.db-block` cannot see a press outside `.db-block`; measured in
+       the browser, `elementFromPoint` resolved all six rows to the wrapper.
+       `.bn-block-content` is the smallest element whose box *is* that band, so guarding it
+       covers the block plus every gap it is given, at any width, without measuring. */
+    const surface = node.closest<HTMLElement>(".bn-block-content") ?? node;
     const guard = (event: MouseEvent) => {
       const target = event.target instanceof Element ? event.target : null;
       if (!target) return;
@@ -283,8 +313,8 @@ export function DatabaseBlock({ props }: { props: Record<string, unknown> }) {
       event.preventDefault();
       event.stopPropagation();
     };
-    node.addEventListener("mousedown", guard, true);
-    return () => node.removeEventListener("mousedown", guard, true);
+    surface.addEventListener("mousedown", guard, true);
+    return () => surface.removeEventListener("mousedown", guard, true);
   }, []);
 
   if (load.status === "loading") {
@@ -366,6 +396,7 @@ export function DatabaseBlock({ props }: { props: Record<string, unknown> }) {
             onResizeProperty={resizeProperty}
             onSortProperty={sortProperty}
             onTypeProperty={changeType}
+            onConfigProperty={configProperty}
             refusalOf={refusalOf}
             onCell={writeCell}
           />

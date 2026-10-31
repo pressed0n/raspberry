@@ -40,26 +40,50 @@ test("the `+`-and-grip pair is rendered from exactly one component", () => {
 });
 
 test("the grip is drawn in exactly one place", () => {
-  /* `GripGlyph` beside a `+` *is* the pair, so a second file drawing it is a second pair.
-     A lone `AddGlyph` is not: it is the app's plus in a host that wants a plus, which is
-     what `AGENTS.md` asks for — reuse the glyph rather than reaching for lucide's. So the
-     grip is what is pinned here. */
-  assert.deepEqual(usesGrip, ["src/components/frame-anchor.tsx", "src/components/grip-glyphs.tsx"],
-    "a third file draws the grip — that is a copy of the pair, not a use of it");
+  /* The grip used to be pinned to `FrameAnchor`, because the pair was the only thing that
+     drew one and a second drawing of the dots was a second pair.
+
+     The button moved down into the glyph module (`GripButton`), because the tag menu needs
+     a grip with no plus beside it and copying the pair's button to get one is exactly how
+     the row gutter ended up with lucide's hairlines. So the pin is now one level lower and
+     *stronger*: no file anywhere draws the dots except the file that defines them.
+     `FrameAnchor` and the option row both render `<GripButton>`; the pair itself is still
+     pinned by `rendersPair` above. */
+  assert.deepEqual(usesGrip, ["src/components/grip-glyphs.tsx"],
+    "a file outside the glyph module draws the grip — render <GripButton> instead");
 });
 
 test("the glyph module has exactly the consumers we have decided on", () => {
   /* A deliberate list rather than a count: a new consumer is a new decision, and it should
      fail here until someone says out loud that it is the same vocabulary.
 
-       frame-anchor.tsx        the pair itself
-       add-property-menu.tsx   `+ Add property` — a plus and a label, no grip */
+       frame-anchor.tsx                the pair itself — plus, then GripButton
+       add-property-menu.tsx           `+ Add property` — a plus and a label, no grip
+       database/option-panel.tsx       the tag menu's reorder grip — a GripButton alone
+       database/group-controls.tsx     the per-group `+` and `+ New group` — AddGlyph, the
+                                       same plus the object menu draws, because a second
+                                       plus drawn with lucide is how the gutter drifted
+
+     `status-groups.tsx` was the fourth entry and is now *not* one: the row moved into
+     `group-controls.tsx` so the tag dropdown and the property menu render one control
+     instead of two that must be kept in step. The pane kept the shell, and a shell that
+     draws no glyph. */
   assert.deepEqual(usesGlyphs, [
     "src/components/database/add-property-menu.tsx",
+    "src/components/database/group-controls.tsx",
+    "src/components/database/option-panel.tsx",
     "src/components/frame-anchor.tsx",
   ], "the glyphs are imported somewhere new — reuse them, or add the file to this list on purpose");
   assert.doesNotMatch(read("src/components/database/add-property-menu.tsx"), /GripGlyph/,
     "the add-property control is a plus and a label, not a second grip");
+  assert.doesNotMatch(read("src/components/database/option-panel.tsx"), /GripGlyph/,
+    "the tag menu must reach the dots through <GripButton>, not by drawing them");
+  assert.doesNotMatch(read("src/components/database/group-controls.tsx"), /Grip/,
+    "the group row is not a reorder surface — tags are moved in the cell dropdown");
+  /* The groups pane creates tags; ordering them is the cell dropdown's grip. A grip here
+     would be a second reorder surface, and a second opinion about what the order means. */
+  assert.doesNotMatch(read("src/components/database/status-groups.tsx"), /Grip/,
+    "the groups pane is not a reorder surface — tags are moved in the cell dropdown");
 });
 
 test("the object menu renders the pair rather than its own copy", () => {

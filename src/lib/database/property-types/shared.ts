@@ -28,6 +28,17 @@ export interface PropertyTypeSpec<C = Record<string, unknown>> {
   isEmpty(value: CellValue, config: C): boolean;
   /** One sort order for this type, shared by every view. */
   compare(a: CellValue, b: CellValue, config: C): number;
+  /**
+   * The order a person arranged, when the type has one.
+   *
+   * `compare` answers "how do these two values read", which for a tag is its name. This
+   * answers a different question — "which of these two tags did a person put first?" —
+   * and only Select, Multi-select and Status can answer it, because the sequence lives
+   * in the property's config rather than in the value. A sort in the `manual` direction
+   * calls this and nothing else; a type that does not implement it has no arranged order
+   * to offer, so the menu does not show the row (`sortLabels` decides that from `order`).
+   */
+  order?(a: CellValue, b: CellValue, config: C): number;
   /** How the value reads in a cell, an export, and a formula's string cast. */
   format(value: CellValue, config: C): string;
   fits(operator: FilterOperator, value: CellValue, operand: unknown, config: C): boolean;
@@ -182,7 +193,13 @@ export function optionIdFrom(value: unknown, config: Record<string, unknown> | u
 
 export function optionIdsOf(value: CellValue, config: Record<string, unknown> | undefined): string[] {
   const options = optionsOf(config);
-  return asList(value)
+  /* `select` and `status` store one id as a **bare string**; only `multiSelect` stores a
+     list. `asList` answers `[]` for anything that is not an array, so routing a single
+     select through it read every one of them as "nothing selected": the chip never
+     appeared, the cell looked empty, and the panel could not tell you which tag was
+     already on. Anything that is not a list is therefore treated as a one-item list. */
+  const list = Array.isArray(value) ? value : value === null || value === undefined || value === "" ? [] : [value];
+  return list
     .map((item) => optionIdFrom(asText(item), config) ?? optionIdFrom(item as string, config))
     .filter((id): id is string => id !== null && options.some((option) => option.id === id));
 }

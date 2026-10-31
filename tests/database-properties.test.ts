@@ -1,7 +1,16 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { propertyTypes, type PropertyType } from "../src/lib/database/types";
-import { availableTypes, formatCell, resolveProperty } from "../src/lib/database/properties";
+import { propertyTypes, numberFormats, type PropertyType } from "../src/lib/database/types";
+import {
+  availableTypes,
+  currencies,
+  currencySymbol,
+  formatCell,
+  numberFormatChoices,
+  resolveProperty,
+  sortKind,
+  sortLabels,
+} from "../src/lib/database/properties";
 
 /**
  * B39 — the property registry, type by type.
@@ -133,7 +142,12 @@ test("renaming an option is one config write, not a cell migration", () => {
 
 test("option order is the property's order, not the alphabet", () => {
   const select = spec("select");
-  assert.ok(select.compare("o2", "o1", tags) > 0, "Blue sorts after Red because a person put it there");
+  /* The arranged order moved to `order` when sorting gained a `manual` direction: two
+     orders exist now, and the one the dropdown shows is not the one "A → Z" promises.
+     `tags` is Red then Blue, so the two disagree — which is why this fixture can tell
+     them apart at all. */
+  assert.ok(select.order!("o2", "o1", tags) > 0, "Blue after Red, because a person put it there");
+  assert.ok(select.compare("o2", "o1", tags) < 0, "and by name, Blue is before Red");
 });
 
 test("a multi-select takes several tags and dedupes them", () => {
@@ -164,9 +178,9 @@ const workflow = {
 
 test("a status sorts by group, then by its place inside the group", () => {
   const status = spec("status");
-  assert.ok(status.compare("s1", "s2", workflow) < 0, "To-do before In progress");
-  assert.ok(status.compare("s1", "s4", workflow) < 0, "inside To-do, as arranged");
-  assert.ok(status.compare("s3", "s2", workflow) > 0, "Complete last");
+  assert.ok(status.order!("s1", "s2", workflow) < 0, "To-do before In progress");
+  assert.ok(status.order!("s1", "s4", workflow) < 0, "inside To-do, as arranged");
+  assert.ok(status.order!("s3", "s2", workflow) > 0, "Complete last");
 });
 
 test("a status filter may name a group, because that is the question people ask", () => {
@@ -226,7 +240,11 @@ test("a same-day range is the wishlist's '8 hours on one day'", () => {
   const date = spec("date");
   const meeting = date.coerce({ start: "2026-10-30T09:00", end: "2026-10-30T17:00" }, {});
   assert.deepEqual(meeting, { start: "2026-10-30T09:00", end: "2026-10-30T17:00" });
-  assert.equal(date.format(meeting, { includeTime: true, timeFormat: "24" }), "2026-10-30 09:00 → 2026-10-30 17:00");
+  /* The date is said once. This used to be `2026-10-30 09:00 → 2026-10-30 17:00`, which
+     spends the cell's width restating a day it just named — and the picker now draws this
+     exact value as its own preview, so the two must agree. `tests/database-dates.test.ts`
+     pins the collapse, and the multi-day form beside it. */
+  assert.equal(date.format(meeting, { includeTime: true, timeFormat: "24" }), "2026-10-30 09:00 → 17:00");
 });
 
 test("a bare date in a filter means the whole day", () => {
@@ -327,4 +345,75 @@ test("formatCell is the only door a view needs, and it never throws", () => {
     assert.doesNotThrow(() => formatCell({ type, config: {} }, null), `${type} threw on an empty cell`);
     assert.equal(formatCell({ type, config: {} }, null), "", `${type} rendered an empty cell as text`);
   }
+});
+
+/* ---------------------------------------------------------------------------
+   How a sort explains itself.
+
+   "A → Z" is a claim about the comparison. It was written once, in the property
+   menu, and it was wrong for eight of the sixteen types — a number column sorted
+   ascending is not A to Z. The wording and the glyph (`sortKind`) now come from the
+   type, and these assertions are what stop the two drifting back into the menu.
+   --------------------------------------------------------------------------- */
+
+test("a sort is described in the terms its type actually compares by", () => {
+  assert.deepEqual(sortLabels("number"), { ascending: "Low → High", descending: "High → Low" });
+  assert.deepEqual(sortLabels("date"), { ascending: "Earliest → Latest", descending: "Latest → Earliest" });
+  assert.deepEqual(sortLabels("createdTime"), { ascending: "Earliest → Latest", descending: "Latest → Earliest" });
+  assert.deepEqual(sortLabels("checkbox"), { ascending: "Unchecked first", descending: "Checked first" });
+  assert.deepEqual(sortLabels("text"), { ascending: "A → Z", descending: "Z → A" });
+  /* A tag column is the one place a third order exists, and the label is *added* to the
+     alphabetical pair rather than replacing it — both are real and they disagree. */
+  assert.deepEqual(sortLabels("select"), { ascending: "A → Z", descending: "Z → A", manual: "Manual order" });
+});
+
+test("every type both names its sort and classifies it, and no label says A to Z wrongly", () => {
+  for (const type of propertyTypes) {
+    const labels = sortLabels(type);
+    assert.ok(labels.ascending.length > 0 && labels.descending.length > 0, `${type} has no sort labels`);
+    assert.notEqual(labels.ascending, labels.descending, `${type} names both directions the same`);
+    assert.ok(["alpha", "ordered"].includes(sortKind(type)), `${type} has no sort kind`);
+  }
+  /* The ordered kinds are exactly the types that do not compare as text. Sorted, so
+     the assertion names the set rather than the order the registry happens to have. */
+  const ordered = propertyTypes.filter((type) => sortKind(type) === "ordered").sort();
+  assert.deepEqual(ordered, ["checkbox", "createdTime", "date", "number"]);
+});
+
+test("the number formats offered are the number formats the schema stores", () => {
+  /* `currency` is deliberately absent from `numberFormatChoices`: it is chosen in the
+     same submenu from a list of currencies, so offering it as a bare "Currency" row
+     would set a format with no currency. Every *other* format must be reachable. */
+  const offered = numberFormatChoices.map((choice) => choice.format);
+  const missing = numberFormats.filter((format) => format !== "currency" && !offered.includes(format));
+  assert.deepEqual(missing, [], "a format the config can hold has no menu row");
+  assert.deepEqual(offered, ["number", "separators", "percent", "duration"], "menu order changed");
+});
+
+test("a currency code renders the symbol the cell will show, and an unknown one does not throw", () => {
+  for (const entry of currencies) {
+    const symbol = currencySymbol(entry.code);
+    assert.ok(symbol.length > 0, `${entry.code} has no symbol`);
+    assert.equal(typeof symbol, "string");
+  }
+  /* The same code twice must give the same glyph, or the menu and the cell disagree. */
+  assert.equal(currencySymbol("EUR"), currencySymbol("EUR"));
+  assert.equal(currencySymbol("NOTACODE"), "NOTACODE", "an unknown code falls back to itself");
+  /* And the symbol is the one the *formatter* uses, not a second opinion. */
+  const formatted = formatCell({ type: "number", config: { format: "currency", currency: "EUR", decimals: 0 } }, 1234);
+  assert.ok(formatted.includes(currencySymbol("EUR")), `"${formatted}" does not contain the menu's symbol`);
+});
+
+test("number presentation is presentation: the stored value is untouched", () => {
+  const cell = (config: Record<string, unknown>) => formatCell({ type: "number", config }, 1234.5);
+  assert.equal(cell({ format: "number", decimals: 0 }), "1235");
+  assert.equal(cell({ format: "number", decimals: 2 }), "1234.50");
+  assert.equal(cell({ format: "separators", decimals: 0 }), new Intl.NumberFormat(undefined, { maximumFractionDigits: 0 }).format(1234.5));
+  assert.equal(cell({ format: "percent", decimals: 0 }), "1235%");
+  assert.equal(cell({ format: "duration", decimals: 0 }), "20m 35s");
+  assert.equal(cell({ format: "currency", currency: "USD", decimals: 2 }), new Intl.NumberFormat(undefined, { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(1234.5));
+  /* Two settings, one value: the decimal count must not survive a format change as a
+     rounded *stored* number. */
+  const spec = resolveProperty({ type: "number" });
+  assert.equal(spec.coerce("1234.567", { decimals: 0 }), 1234.567);
 });

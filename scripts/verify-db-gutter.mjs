@@ -194,5 +194,60 @@ b.check("the header row is the same height as every data row (≤1px)",
   heights.rows.every((h) => Math.abs(h - heights.head) <= 1),
   `head ${heights.head}, rows ${heights.rows.join("/")}`);
 
+/* ---- 6. the property row has no column separators ------------------------- */
+
+/* B40j. The owner asked for the header's dividers to go. Two things make this easy to get
+   wrong, and both are asserted here rather than assumed:
+
+   (a) `.bn-editor th` sets `border: 1px solid` at (0,1,1), so clearing `.db-th`'s
+       `border-right` at (0,1,0) changes *nothing* on screen. The line has to be cleared from
+       a rule that outranks the editor's.
+   (b) With `border-collapse: collapse` a shared edge is drawn from whichever of the two
+       competing borders is wider. Clearing only the right edge leaves the neighbour's 1px
+       left edge in exactly the same place. Both sides are read, not just one.
+
+   And the line that must survive — the rule under the header — is checked in the same
+   breath, because an over-eager clear takes it with the rest. */
+const borders = await b.evaluate(`(() => {
+  const px = (v) => Math.round(Number.parseFloat(v || "0") * 100) / 100;
+  const cs = (el) => getComputedStyle(el);
+  const read = (el) => ({
+    l: px(cs(el).borderLeftWidth), r: px(cs(el).borderRightWidth),
+    t: px(cs(el).borderTopWidth), b: px(cs(el).borderBottomWidth),
+    bc: cs(el).borderBottomColor,
+    w: Math.round(el.getBoundingClientRect().width * 100) / 100,
+  });
+  const ths = [...document.querySelectorAll(".db-table thead tr > th")];
+  const tds = [...document.querySelectorAll(".db-table tbody tr.db-row > .db-cell")];
+  return {
+    header: ths.map((el) => ({ cls: String(el.className), ...read(el) })),
+    body: tds.map(read),
+  };
+})()`);
+
+const dataHeaders = borders.header.filter((h) => !/db-gutter|db-th-add|db-th-filler/.test(h.cls));
+b.check("no property cell draws a vertical rule on either side",
+  dataHeaders.length > 0 && dataHeaders.every((h) => h.l === 0 && h.r === 0),
+  dataHeaders.map((h) => `${h.cls}:${h.l}/${h.r}`).join(", "));
+b.check("the rule under the property row is still there",
+  /* The gutter is zero wide, so it has no bottom edge to draw; every cell that has width
+     must still carry the rule, or the header would be underlined in pieces. */
+  borders.header.filter((h) => h.w > 0).every((h) => h.b >= 1),
+  borders.header.map((h) => `${h.cls}:w${h.w}/b${h.b}`).join(", "));
+b.check("no property cell draws a rule above itself (the block has no frame)",
+  dataHeaders.every((h) => h.t === 0),
+  dataHeaders.map((h) => `${h.cls}:${h.t}`).join(", "));
+/* One line, one colour. The `+` and filler cells paint their own bottom edge, and the
+   filler used to paint it one step lighter than the cells beside it — a colour step in the
+   middle of a rule the eye reads as continuous. Four separate declarations now have to
+   agree, so this asserts agreement rather than trusting them to. */
+const headerRule = borders.header.filter((h) => h.w > 0).map((h) => h.bc);
+b.check("the rule under the property row is one colour, end to end",
+  headerRule.length > 1 && headerRule.every((c) => c === headerRule[0]),
+  headerRule.join(" | "));
+b.check("the body keeps its column separators — this removed the header's, not the table's",
+  borders.body.length > 0 && borders.body.some((c) => c.r >= 1),
+  `${borders.body.length} cells, ${borders.body.filter((c) => c.r >= 1).length} ruled`);
+
 await b.shot(`gutter-${width}`);
 await b.report();

@@ -1,4 +1,4 @@
-"use client";
+﻿"use client";
 /* The table view — the wishlist's first item.
    ---------------------------------------------------------------------------
    This component renders a `RowSet` and nothing else. It never fetches, never sorts
@@ -31,6 +31,11 @@ import { MAX_COLUMN_WIDTH, MIN_COLUMN_WIDTH, PropertyHeader, type SortDirection 
 
 const DEFAULT_NAME_WIDTH = 280;
 const DEFAULT_PROPERTY_WIDTH = 180;
+/* A date column is born wider than the generic one. A range is what a date column is *for*,
+   and `31 Oct 2026 → 1 Nov 2026` does not fit in 180: the cell would ellipsise the one thing
+   the column was added to say. 220 holds a two-date range, and a range with clocks in 24-hour
+   form (`31 Oct 2026 09:00 → 17:00`); a 12-hour clock is the one reading that still trims. */
+const DATE_PROPERTY_WIDTH = 220;
 /* The left gutter — grip, `+`, checkbox — is not a column at any width.
    ---------------------------------------------------------------------------
    It used to be one below 860px, on the theory that a phone has no margin to hang in.
@@ -67,13 +72,14 @@ const DEFAULT_PROPERTY_WIDTH = 180;
 const ADD_COLUMN = 132;
 
 
-function defaultWidthOf(propertyId: string): number {
-  return propertyId === primaryPropertyId ? DEFAULT_NAME_WIDTH : DEFAULT_PROPERTY_WIDTH;
+function defaultWidthOf(property: Pick<PropertyDef, "id" | "type">): number {
+  if (property.id === primaryPropertyId) return DEFAULT_NAME_WIDTH;
+  return property.type === "date" ? DATE_PROPERTY_WIDTH : DEFAULT_PROPERTY_WIDTH;
 }
 
-function widthOf(widths: Record<string, number>, id: string): number {
-  const value = Number(widths[id] ?? 0);
-  if (!Number.isFinite(value) || value <= 0) return defaultWidthOf(id);
+function widthOf(widths: Record<string, number>, property: Pick<PropertyDef, "id" | "type">): number {
+  const value = Number(widths[property.id] ?? 0);
+  if (!Number.isFinite(value) || value <= 0) return defaultWidthOf(property);
   return Math.min(MAX_COLUMN_WIDTH, Math.max(MIN_COLUMN_WIDTH, value));
 }
 
@@ -99,6 +105,7 @@ export function TableView({
   onResizeProperty,
   onSortProperty,
   onTypeProperty,
+  onConfigProperty,
   refusalOf,
   onCell,
 }: {
@@ -141,6 +148,11 @@ export function TableView({
      the refusal this table showed them — the table never decides on its own to drop
      values that the new type cannot read. */
   onTypeProperty?: (propertyId: string, type: PropertyType, anyway?: boolean) => void;
+  /* How a column presents its values — number format, decimal places, and the tag
+     list. A merge onto the existing config, never a replacement: see `PropertyHeader`'s
+     `onConfig`. Returns the write, because creating a tag has to land *before* the cell
+     that names it — `coerce` drops an id the config does not have yet. */
+  onConfigProperty?: (propertyId: string, patch: Record<string, unknown>) => Promise<unknown> | void;
   /* The refusal for one column: which type was asked for and how many cells it would
      clear. `null` (or absent) means "no refusal to answer". */
   refusalOf?: (propertyId: string) => { type: PropertyType; cells: number } | null;
@@ -166,7 +178,8 @@ export function TableView({
      is the same one that was just persisted. */
   const [drifting, setDrifting] = useState<Record<string, number>>({});
 
-  const widthFor = (propertyId: string): number => drifting[propertyId] ?? widthOf(view.config.widths, propertyId);
+  const widthFor = (property: Pick<PropertyDef, "id" | "type">): number =>
+    drifting[property.id] ?? widthOf(view.config.widths, property);
 
   /* A view config holds a list of sorts, and this renderer honours the whole list — it
      asks "is *this* property sorted, and which way", which is also the right question when
@@ -324,14 +337,14 @@ export function TableView({
           compatible: without an auto-width column the browser hands the leftover
           space to the data columns, and a 70px drag then moves the edge by 36px.
           With it, every property column keeps exactly the width it was given. */}
-        <table className="db-table" style={{ width: set.properties.reduce((sum, property) => sum + widthFor(property.id), 0) + (onAddProperty ? ADD_COLUMN : 0) }}>
+        <table className="db-table" style={{ width: set.properties.reduce((sum, property) => sum + widthFor(property), 0) + (onAddProperty ? ADD_COLUMN : 0) }}>
           <colgroup>
             {/* Zero-wide, at every width: the controls hang outside the table's own box.
                 The number lives in CSS (`--db-col`) because the media query that used to
                 change it is gone — a column here indents the grid, and the grid is the
                 thing that has to line up with the page. */}
             <col style={{ width: "var(--db-col)" }} />
-            {set.properties.map((property) => <col key={property.id} style={{ width: widthFor(property.id) }} />)}
+            {set.properties.map((property) => <col key={property.id} style={{ width: widthFor(property) }} />)}
           {onAddProperty ? <col style={{ width: ADD_COLUMN }} /> : null}
           <col />
         </colgroup>
@@ -362,8 +375,8 @@ export function TableView({
                 <PropertyHeader
                   property={property}
                   sort={sortOf(property.id)}
-                  width={widthFor(property.id)}
-                  defaultWidth={defaultWidthOf(property.id)}
+                  width={widthFor(property)}
+                  defaultWidth={defaultWidthOf(property)}
                   onRename={onRenameProperty ? (name) => onRenameProperty(property.id, name) : undefined}
                   onIcon={onIconProperty ? (icon) => onIconProperty(property.id, icon) : undefined}
                   onSort={onSortProperty ? (direction) => onSortProperty(property.id, direction) : undefined}
@@ -377,6 +390,7 @@ export function TableView({
                   /* The title column stays Text: a row here is a page, and a page's name
                      is the one thing the sidebar, the crumbs and the search all read. */
                   onType={onTypeProperty && property.id !== primaryPropertyId ? (type, anyway) => onTypeProperty(property.id, type, anyway) : undefined}
+                  onConfig={onConfigProperty && property.id !== primaryPropertyId ? (patch) => onConfigProperty(property.id, patch) : undefined}
                   refusal={refusalOf?.(property.id) ?? null}
                 />
               </th>
@@ -483,7 +497,13 @@ export function TableView({
                 </div>
               </td>
               {set.properties.map((property) => (
-                <td key={property.id} className={property.id === primaryPropertyId ? "db-cell db-cell-name" : "db-cell"}>
+                <td
+                  key={property.id}
+                  /* Named so a probe can find one column's cell without counting `<td>`s —
+                     the same reason a row carries `data-row-id`. It is inert markup. */
+                  data-property-id={property.id}
+                  className={property.id === primaryPropertyId ? "db-cell db-cell-name" : "db-cell"}
+                >
                   {property.id === primaryPropertyId ? (
                     <div className="db-name-cell">
                       <EntryIcon
@@ -528,6 +548,7 @@ export function TableView({
                       placeholder={property.id === primaryPropertyId ? "Untitled" : undefined}
                       autoFocus={row.id === focusRow && property.id === primaryPropertyId}
                       onCommit={(value) => onCell?.(row.id, property.id, value)}
+                      onConfig={onConfigProperty ? (patch) => onConfigProperty(property.id, patch) : undefined}
                     />
                   ) : (
                     <span className="db-cell-text">{formatCell(property, property.id === primaryPropertyId ? row.title : row.cells[property.id] ?? null)}</span>

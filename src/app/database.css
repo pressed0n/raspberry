@@ -10,8 +10,15 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  margin: 4px 0;
-  padding: 4px 0 8px;
+  /* No vertical margin, deliberately. A margin is **not hit-testable**: those pixels
+     belong to the editor's `.bn-block-content`, so ProseMirror's own handler sees them and
+     the press lands on the database node. That was the owner's "very small hitbox at the
+     top of the database block … stuck in that highlighted state until you refresh" — the
+     4px this rule used to ask for, plus the 2px of `.bn-block-content` padding above it.
+     Space the block needs, the block owns as padding. Spacing is unchanged: 4 + 4 above
+     and 8 + 4 below became 8 and 12. */
+  margin: 0;
+  padding: 8px 0 12px;
   /* The block's UI is a widget, not text. BlockNote still asks whether the block is
      editable, so this keeps selection and caret out of the controls. */
   user-select: none;
@@ -176,11 +183,20 @@
   color: var(--text-2);
   padding: 0;
   height: 32px;
-  border-right: 1px solid var(--hairline);
-  border-bottom: 1px solid var(--hairline);
-}
+  /* No `border-right` (B40j). The property row is one band of labels, not a row of
+     boxed columns: a rule between every pair of headers splits the band into cells and
+     makes the row read as a table in its own right, one line above the table. The body
+     keeps its separators — they are what makes a 32px row scan across four values.
 
-.db-th:last-child { border-right: 0; }
+     Nothing is lost by hiding the divider: the *boundary* is still there to be found,
+     because `.db-th-resize::after` draws it on hover and while dragging. The line was
+     ever only the affordance; the affordance stayed.
+
+     The bottom rule is *not* declared here. It used to be, and it never painted: the
+     editor's `.bn-editor th { border: 1px … }` is (0,1,1) and beats this (0,1,0) — the
+     same cascade three times running in this file (padding, fill, weight). It lives
+     with the other rules that outrank the editor, below. */
+}
 
 /* The Name column is the first column, not a heading (B40g). It used to be `--text`
    while its neighbours were `--palette-gray-text`, so the one column whose label is least
@@ -641,11 +657,27 @@
   font-weight: 500;
 }
 
+/* The rule under the property row — stated here, at the strength the editor was already
+   painting it, so the declaration that wins is the one you can read (B40j).
+
+   `:not(.db-gutter)` because the gutter is a zero-width cell whose whole contract is that it
+   draws nothing (`.db-gutter { border: 0 }`); a plain `.db-th` rule here would out-rank that
+   by being later in the file and quietly give the header's gutter cell a bottom border.
+   Invisible at 0px — and exactly the kind of invisible lie that has cost this file three
+   rounds already.
+
+   `--hairline-strong`, not `--hairline`: this rule sits at the same weight as the column
+   separators below it, not the lighter weight of the rules *between* rows. And one rule for
+   all cells, so the line cannot change colour part-way along: the `+` and filler cells each
+   used to restate their own bottom edge, and one of them restated it a step lighter. */
+.db-block .db-table .db-th:not(.db-gutter) { border-bottom: 1px solid var(--hairline-strong); }
+
 /* And the outer ring has to go with the wrapper's border. The editor gives every
    `th`/`td` a full 1px border, so removing only the wrapper's would leave the identical
    rectangle drawn one pixel inside it: top, left, right and bottom all still visible.
-   Only the outermost edge is cleared — the column separators, the rule under the header
-   and the rule between rows are the table, and they stay.
+   Only the outermost edge is cleared here — the column separators in the body, the rule
+   under the header and the rule between rows are the table, and they stay. (The header's
+   own separators are cleared on purpose, one rule below: they are not part of the table.)
 
    `:first-child` is not enough for the left edge any more: the first cell is the
    zero-wide gutter, which draws nothing, so the *second* cell's left border became the
@@ -654,7 +686,13 @@
 .db-block .db-table tr > :first-child { border-left: 0; }
 .db-block .db-table tr > .db-gutter + * { border-left: 0; }
 .db-block .db-table tr > :last-child { border-right: 0; }
-.db-block .db-table thead tr > th { border-top: 0; }
+/* The property row has no column separators (B40j) — see `.db-th` for why. Both sides
+   have to be named, not just `border-right`: with `border-collapse: collapse` a shared
+   edge is decided by whichever of the two competing borders is wider, so clearing one
+   cell's right edge leaves the 1px on its neighbour's left edge standing in exactly the
+   same place. Clearing only the right side is the version of this fix that looks
+   identical to no fix at all. */
+.db-block .db-table thead tr > th { border-top: 0; border-right: 0; border-left: 0; }
 .db-block .db-table tbody tr:last-child > .db-cell { border-bottom: 0; }
 
 /* ---------------------------------------------------------------------------
@@ -776,6 +814,13 @@ select.db-cell-input { appearance: none; cursor: pointer; }
 
 button.db-th-label { cursor: text; }
 button.db-th-label:hover { background: var(--hover); color: var(--text); }
+/* While its menu is open — the click's whole lifetime, not the instant of the press. The
+   menu opens on `mousedown` and closes on dismissal, so `aria-expanded` is the exact
+   state; `:active` would flash for one frame and leave nothing behind.
+   Same specificity as the `:hover` above (0,2,1), declared after it on purpose: an open
+   header holds the stronger fill while the pointer travels toward the menu, and hovering
+   the trigger cannot knock it back down a step and back up again. */
+button.db-th-label[aria-expanded="true"] { background: var(--hover-strong); color: var(--text); }
 .db-th-static { color: var(--text); }
 .db-th-static:hover { background: transparent; }
 
@@ -925,14 +970,10 @@ button.db-th-label:hover { background: var(--hover); color: var(--text); }
 
 .db-th-sorted { flex: none; color: var(--accent); }
 
-.db-th-caret {
-  flex: none;
-  opacity: 0;
-  transition: opacity 120ms ease;
-}
-
-.db-th:hover .db-th-caret,
-.db-th-label:focus-visible .db-th-caret { opacity: 0.5; }
+/* There is no caret here any more, deliberately: the header is a menu trigger and the
+   glyph was the only thing in the cell that said so — a second, weaker arrow beside the
+   sort arrow it could be confused with. The affordance is the hover fill and the open
+   fill, and `verify-db-th-state.mjs` fails if a `<svg>` reappears in the label. */
 
 /* The handle sits *inside* the column, not straddling the border. A handle at
    `right: -3px` has its centre exactly on the boundary, where the next `<th>` — a
@@ -1028,6 +1069,9 @@ body.db-resizing * { cursor: col-resize !important; }
 }
 
 .db-menu-check { margin-left: auto; color: var(--accent); }
+/* A sample ("1,234") and a tick can appear on the same row: the sample takes the free
+   space, the tick follows it at a fixed gap, and either one alone goes hard right. */
+.db-menu-value + .db-menu-check { margin-left: 6px; color: var(--accent); }
 
 .db-menu-danger { color: var(--danger); }
 .db-menu-danger:hover,
@@ -1051,7 +1095,9 @@ body.db-resizing * { cursor: col-resize !important; }
   width: auto;
 }
 
-.db-block .db-table .db-th-filler { border-bottom: 1px solid var(--hairline); }
+/* Their `border: 0` above clears the bottom edge too, and the rule under the property row
+   puts it back — one declaration for every header cell, so the line cannot change colour
+   part-way along. */
 
 /* `+` is part of the header row, not a column: it loses its side edges so the header's
    rule ends on the same column the body's rules end on. The line between the last data
@@ -1097,6 +1143,17 @@ body.db-resizing * { cursor: col-resize !important; }
 }
 
 .db-menu-caret { flex: none; color: var(--palette-gray-text); margin-left: auto; }
+/* A submenu that reports its own setting ("Number format  1,234") right-aligns the
+   value and then lets the caret follow it with a fixed gap. Two `margin-left: auto`
+   boxes would split the free space and centre the value in the leftover room. */
+.db-menu-value {
+  flex: none;
+  margin-left: auto;
+  color: var(--text-2);
+  font-size: var(--fs-meta);
+  font-variant-numeric: tabular-nums;
+}
+.db-menu-value + .db-menu-caret { margin-left: 6px; }
 .db-menu-divider { height: 1px; margin: 4px 0; background: var(--hairline); }
 .db-menu-sub { position: relative; }
 .db-menu-row.is-disabled { opacity: 0.5; cursor: default; }
@@ -1126,6 +1183,20 @@ body.db-resizing * { cursor: col-resize !important; }
 }
 
 .db-prop-icon-btn:hover { background: var(--hover-strong); }
+
+/* The back arrow of a pane head is *navigation*, not an input. `.db-prop-icon-btn` is an icon
+   well — a bordered box — which is right in the property menu's head, where it holds the
+   column's icon and sits beside a text field. In a pane head it put a box inside a box, and
+   next to the bare `+` glyphs on the group rows it gave two shapes to one kind of control:
+   a small icon you press. This modifier keeps the base (size, radius, weight) and drops the
+   chrome, so `←` and `+` read as siblings. */
+.db-prop-icon-btn.db-menu-back {
+  border-color: transparent;
+  background: transparent;
+  color: var(--palette-gray-text);
+}
+
+.db-prop-icon-btn.db-menu-back:hover { background: var(--hover); color: var(--text); }
 
 .db-prop-head .db-prop-name { flex: 1 1 auto; width: auto; min-width: 0; }
 
@@ -1251,3 +1322,707 @@ body.db-resizing * { cursor: col-resize !important; }
 }
 
 .db-hidden-chip:hover { background: var(--hover-strong); color: var(--text); }
+
+/* ---------------------------------------------------------------------------
+   Tags — Select, Multi-select and Status
+   ---------------------------------------------------------------------------
+   A cell holding tags is a *button*, not an open editor: `TableView` mounts every
+   cell's editor whenever the table is editable, so a control that opened itself would
+   open on every row at once. The chips take their two values from the same palette
+   tokens the block colour panel uses; "default" is the neutral chip and carries a
+   hairline instead of a fill, so a tag with no colour is still visibly a tag. */
+
+.db-tag-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 32px;
+}
+
+.db-tag-trigger {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-width: 0;
+  min-height: 32px;
+  padding: 4px 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font: 400 var(--fs-ui) / 1 var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.db-tag-trigger .db-cell-empty { padding: 0; line-height: 20px; }
+.db-tag-trigger:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
+
+.db-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 100%;
+  height: 20px;
+  padding: 0 6px;
+  border-radius: 4px;
+  background: var(--palette-gray-background);
+  color: var(--palette-gray-text);
+  font: 500 var(--fs-ui) / 1 var(--font-ui);
+}
+
+/* The name is the one box in the chip that clips, so it is the one that has to leave room
+   for a descender. It inherited `line-height: 1` from `.db-tag`, which makes the line box
+   exactly one font-size tall — 13px for a 15px-tall font — so `overflow: hidden` cut the
+   bottom 1.5px off g, j, p, q, y and the comma, while `scrollHeight` still equalled
+   `clientHeight`, because ink overflow is not scrollable overflow. Nothing in the DOM said
+   so; `scripts/verify-text-clip.mjs` measures it with font metrics.
+   `normal` would be enough (the line box then contains ascent+descent by definition, with
+   zero slack); 1.4 leaves slack for the fallback fonts too. The chip's height is fixed at
+   20px and line-height is centred, so the baseline does not move: it works out to
+   (20 - ascent - descent) / 2 + ascent whatever the line box is. */
+.db-tag-name {
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-tag-x {
+  display: inline-flex;
+  padding: 0 1px;
+  border: 0;
+  border-radius: 3px;
+  background: transparent;
+  color: inherit;
+  opacity: 0.65;
+  cursor: pointer;
+}
+
+.db-tag-x:hover { opacity: 1; }
+
+/* One rule per palette name, spelled out rather than generated: these are the same nine
+   names `tagColors` validates on the server, and the light/dark values live in
+   `theme.css`. Adding a colour means adding it in three places that already exist. */
+.db-tag[data-color="default"] {
+  background: transparent;
+  color: var(--text-2);
+  box-shadow: inset 0 0 0 1px var(--hairline-strong);
+}
+.db-tag[data-color="gray"] { background: var(--palette-gray-background); color: var(--palette-gray-text); }
+.db-tag[data-color="brown"] { background: var(--palette-brown-background); color: var(--palette-brown-text); }
+.db-tag[data-color="orange"] { background: var(--palette-orange-background); color: var(--palette-orange-text); }
+.db-tag[data-color="yellow"] { background: var(--palette-yellow-background); color: var(--palette-yellow-text); }
+.db-tag[data-color="green"] { background: var(--palette-green-background); color: var(--palette-green-text); }
+.db-tag[data-color="blue"] { background: var(--palette-blue-background); color: var(--palette-blue-text); }
+.db-tag[data-color="purple"] { background: var(--palette-purple-background); color: var(--palette-purple-text); }
+.db-tag[data-color="pink"] { background: var(--palette-pink-background); color: var(--palette-pink-text); }
+.db-tag[data-color="red"] { background: var(--palette-red-background); color: var(--palette-red-text); }
+
+/* The panel: a sticky search row over a scrolling list, so the field cannot scroll away
+   from a long tag list. */
+.db-option-search {
+  position: sticky;
+  top: -4px;
+  z-index: 1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin: -4px -4px 0;
+  padding: 4px 4px 6px;
+  background: var(--raised);
+}
+
+.db-option-input {
+  flex: 1 1 100%;
+  min-width: 90px;
+  height: 28px;
+  padding: 0 7px;
+  border: 1px solid var(--hairline);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text);
+  font: 400 var(--fs-ui) / 1 var(--font-ui);
+  outline: none;
+}
+
+.db-option-input::placeholder { color: var(--text-3); }
+.db-option-input:focus { border-color: var(--accent-line); }
+
+.db-option-hint {
+  margin: 6px 8px 4px;
+  color: var(--text-3);
+  font: 400 var(--fs-meta) / 1.4 var(--font-ui);
+}
+
+.db-option-row {
+  display: flex;
+  align-items: center;
+  border-radius: 5px;
+}
+
+.db-option-row:hover { background: var(--hover-strong); }
+
+/* The reorder handle. `db-option-grip` is a **modifier** on `.frame-grip`, exactly like
+   `.db-grip` in the row gutter: the shared rule already answers the radius, the colour, the
+   opacity-0 reveal, the `--t-tap` transition, the hover lift and the `(hover: none)`
+   visibility, and a host that restated any of them would look like a different control the
+   moment the pointer arrived.
+
+   What is left is what only a menu row knows: a 16x20 box instead of the pair's 30px half,
+   the glyph scaled down with it, and a left inset that is always reserved — so revealing the
+   handle cannot shift the chip out from under the pointer that just arrived. */
+.db-option-grip {
+  flex: none;
+  width: 16px;
+  height: 20px;
+  border-radius: 4px;
+  cursor: grab;
+  /* The shared reveal is `.frame-anchor:hover` / `.frame-grip.is-open`, neither of which
+     exists inside a menu row. Hidden also means no clicks, for the reason `.db-open` gives:
+     an invisible control that takes clicks is a control you press by accident. Nothing is
+     lost, because the handle sits *inside* the row — hovering the region it occupies is
+     hovering the row, which is what reveals it. */
+  pointer-events: none;
+}
+
+.db-option-row:hover .db-option-grip,
+.db-option-grip:focus-visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+
+.db-option-grip:active { cursor: grabbing; }
+
+/* The glyph is 18x22 for a gutter. Scale it rather than redraw it: the same six dots at a
+   different size is the same control, which is the whole point of the shared file. */
+.db-option-grip svg { width: 13px; height: 16px; }
+
+/* Mid-drag: the row that is moving is dimmed, and the row under the pointer draws the line
+   where it will land. The line is `inset` so drawing it never moves a row. */
+.db-option-row[data-dragging] { opacity: 0.5; }
+.db-option-row[data-dragging] .db-option-grip { opacity: 1; pointer-events: auto; }
+.db-option-row[data-drop="before"] { box-shadow: inset 0 2px 0 var(--accent-line); }
+.db-option-row[data-drop="after"] { box-shadow: inset 0 -2px 0 var(--accent-line); }
+
+/* A touch screen has no hover to reveal anything with. `.frame-grip` already handles its own
+   opacity under `(hover: none)`; `pointer-events` is this host's addition, so this host has
+   to lift it too — otherwise the handle is visible on a phone and still untappable. */
+@media (hover: none) {
+  .db-option-grip { pointer-events: auto; }
+}
+
+/* The row is three buttons and never nested ones: grip, pick, edit. */
+.db-option-pick {
+  display: flex;
+  flex: 1;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  padding: 5px 4px 5px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  text-align: left;
+  cursor: pointer;
+}
+
+.db-option-check { flex: none; margin-left: auto; color: var(--text-2); }
+
+.db-option-more {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  margin-right: 4px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--palette-gray-text);
+  cursor: pointer;
+}
+
+.db-option-more:hover,
+.db-option-more[aria-expanded="true"] { background: var(--hover-strong); color: var(--text); }
+
+.db-option-create {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  padding: 6px 8px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text);
+  font: 400 var(--fs-ui) / 1.2 var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.db-option-create strong { font-weight: 600; }
+.db-option-create:hover { background: var(--hover-strong); }
+
+/* The editor's name field takes the property menu's own head style — same input, same
+   place, so renaming a tag looks like renaming a column. */
+.db-option-name { padding: 2px 4px 4px; }
+
+/* The colour list is vertical because the submenu is 252px wide; the chip is the shared
+   `.swatch` control, sized down to sit in a row. Only the size is overridden — the
+   palette value still arrives through `--swatch`, so the picker cannot drift from the
+   block colour panel. */
+.db-option-colors { display: block; }
+.db-option-colors .swatch { flex: none; width: 18px; height: 18px; border-radius: 5px; }
+
+/* ---------------------------------------------------------------------------
+   Status groups
+   ---------------------------------------------------------------------------
+   Two surfaces, one idea. In the cell dropdown a group is a *heading*: it names a region
+   of the list and is not something to click, so it is quieter than an option row. In the
+   property menu it is the thing being edited, so there it is a row.
+   --------------------------------------------------------------------------- */
+
+.db-option-section { display: block; }
+
+.db-option-group {
+  margin: 6px 0 1px;
+  padding: 0 8px;
+  color: var(--text-3);
+  font: 500 var(--fs-meta) / 1.4 var(--font-ui);
+}
+
+/* The *same* group row (`group-controls.tsx`), drawn as a section heading in the tag
+   dropdown. Only the heading's size and the reveal-on-hover differ; the name, the `+` and
+   the expanded panel are the shared control, so a group can be edited from either place
+   and there is one place to fix if it breaks.
+
+   The `+` is hidden until hover for the same reason the row grip is: a dropdown is a list
+   you read, and five plus signs down it is noise. `(hover: none)` keeps it visible and
+   tappable on a touch screen, where there is no hover to reveal it. */
+.db-option-group-row {
+  margin: 6px 0 1px;
+  padding: 0 4px 0 8px;
+  border-radius: 4px;
+}
+
+.db-option-group-row .db-group-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  color: var(--text-3);
+  font: 500 var(--fs-meta) / 1.4 var(--font-ui);
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-option-group-row .db-group-add {
+  width: 18px;
+  height: 18px;
+  opacity: 0;
+  transition: opacity var(--t-tap);
+}
+
+.db-option-group-row:hover .db-group-add,
+.db-option-group-row:focus-within .db-group-add,
+.db-option-group-row.is-open .db-group-add {
+  opacity: 1;
+}
+
+@media (hover: none) {
+  .db-option-group-row .db-group-add {
+    opacity: 1;
+  }
+}
+
+/* The New-group block, at the foot of a status dropdown. Its own row rather than a section
+   so the divider-free list still reads as "these are the groups, then here is another". */
+.db-option-newgroup {
+  margin-top: 2px;
+  padding-top: 2px;
+}
+
+/* The tick the owner asked for, and the *only* check drawn in the editor's place: it sits
+   before the chip in a table cell. It is the shared `.db-check` box — the same one the
+   gutter and the checkbox property draw — with its pointer behaviour removed, because the
+   flag describes the option's group and there is nothing here to press. */
+.db-tag-check {
+  flex: none;
+  cursor: default;
+  pointer-events: none;
+}
+
+/* The pane. `.db-prop-menu .db-menu-item` already lays rows out as icon + label + tick, so
+   nothing here restates that: these rules only add the row's name, count and `+`. */
+.db-groups-pane { display: block; }
+
+/* A pane head is one row: the way back, then the name of where you are. It was inheriting
+   *nothing* — a block parent with an inline-flex button and a span, so the two lined up on
+   whatever baseline the whitespace between them produced. Same padding as `.db-prop-head`,
+   so swapping the menu's body for this pane does not shift the head by a pixel. */
+.db-groups-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 2px 2px 4px;
+}
+
+.db-groups-title {
+  color: var(--text);
+  font: 500 var(--fs-ui) / 1.4 var(--font-ui);
+}
+
+/* The list itself. There used to be a micro-caps label above it — "Groups, top to bottom" —
+   spending 21px to say what a vertical list already says, and implying an order the rows
+   have no grip to change. Deleted; the space it held is now spacing, so the first row keeps
+   a menu's rhythm rather than a paragraph's. */
+.db-groups-list { padding: 2px 0 1px; }
+
+.db-group-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  /* The expanded panel is a child of this row (a row plus its own settings, not a nested
+     list), so the row has to wrap — otherwise the panel becomes a fourth flex *item* beside
+     the name and is squeezed out of the surface, which is exactly how it first rendered. */
+  flex-wrap: wrap;
+  padding: 0 4px 0 2px;
+  border-radius: 5px;
+}
+
+.db-group-row:hover { background: var(--hover-strong); }
+.db-group-row.is-open { background: var(--hover-strong); }
+
+.db-group-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: 5px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: 400 var(--fs-ui) / 1.4 var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* The count is a hint about what a delete would take with it, not a badge. */
+.db-group-count {
+  flex: none;
+  color: var(--text-3);
+  font: 400 var(--fs-meta) / 1 var(--font-ui);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The `+` is the shared `AddGlyph` inside a plain button — the glyph is what is reused;
+   the button only has to be a hit target. */
+.db-group-add {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.db-group-add:hover { background: var(--hover); color: var(--text); }
+
+/* The group's own settings, indented under it and hung off a rule, so it reads as
+   belonging to the row above rather than to the list. `flex-basis: 100%` is what puts it on
+   its own line once the row wraps. */
+.db-group-panel {
+  display: block;
+  flex: 1 0 100%;
+  margin: 1px 4px 4px 12px;
+  padding: 2px 0 2px 8px;
+  border-left: 1px solid var(--hairline);
+}
+
+/* A confirm row is a sentence ("Delete Blocked and its 1 tag"), so it wraps instead of
+   ellipsing — a warning that ends in "…" has not said what it would destroy. */
+.db-group-panel .db-menu-label { white-space: normal; overflow: visible; }
+
+.db-group-panel .db-prop-name { margin: 2px 0 4px; }
+
+.db-group-confirm {
+  width: 100%;
+  margin: 2px 0 4px;
+  padding: 5px 8px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 5px;
+  background: var(--surface);
+  color: var(--text);
+  font: 500 var(--fs-ui) / 1.4 var(--font-ui);
+  cursor: pointer;
+}
+
+.db-group-confirm:hover { background: var(--hover-strong); }
+
+.db-group-confirm:disabled {
+  color: var(--text-3);
+  border-color: var(--hairline);
+  background: transparent;
+  cursor: default;
+}
+
+/* ---------------------------------------------------------------------------
+   Dates
+   ---------------------------------------------------------------------------
+   A cell is a button that opens a picker, for the same reason a tag cell is: the table
+   mounts every editor, so a control that opened itself would open on every row.
+
+   The panel is three things stacked — the bounds, the month, the two toggles — and only
+   the middle one is a grid. Everything here is sized off the 32px row so the picker's
+   rhythm matches the table's: a 30px day, a 26px field, a 6px gap. */
+
+.db-date-cell {
+  display: flex;
+  align-items: center;
+  min-width: 0;
+  min-height: 32px;
+}
+
+.db-date-trigger {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  width: 100%;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font: 400 var(--fs-ui) / 1 var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.db-date-trigger .db-cell-empty { padding: 0; line-height: 20px; }
+.db-date-trigger:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
+
+/* The one box in the trigger that clips, so it is the one that must leave room for a
+   descender — the same trap `.db-tag-name` documents at length, and the one
+   `scripts/verify-text-clip.mjs` measures with font metrics. A range string ("… → …")
+   is wide, so it does have to clip. */
+.db-date-text {
+  line-height: 1.4;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-date-menu { padding: 6px; }
+
+.db-date-panel { display: flex; flex-direction: column; }
+
+.db-date-bounds {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  margin-bottom: 6px;
+}
+
+/* The row is what "which bound am I editing" looks like: a hairline box that appears on
+   the active one only. Not a fill — a fill under a date reads as a selected value, and
+   both rows hold values. */
+.db-date-bound {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-height: 28px;
+  padding: 0 6px 0 2px;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  cursor: default;
+}
+
+.db-date-bound.is-active {
+  border-color: var(--accent-line);
+  background: var(--hover);
+}
+
+/* The arrow column is reserved on both rows, so a range's two dates start on the same
+   x — and the start row does not shift when the end appears. */
+.db-date-glyph {
+  flex: none;
+  width: 14px;
+  color: var(--text-3);
+  font: 400 var(--fs-ui) / 1 var(--font-ui);
+  text-align: center;
+}
+
+.db-date-day {
+  flex: 1;
+  min-width: 0;
+  padding: 4px 2px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: 400 var(--fs-ui) / 1.4 var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  text-align: left;
+  cursor: pointer;
+}
+
+.db-date-day:hover { color: var(--text); }
+.db-date-placeholder { color: var(--text-3); }
+
+/* A clock that is *unset* looks unset: no border, muted, and a tabular placeholder so the
+   field does not jump between `--:--` and `14:30`. Focus draws the field it becomes. */
+.db-date-time {
+  flex: none;
+  width: 52px;
+  height: 22px;
+  padding: 0 4px;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: 400 var(--fs-ui) / 1 var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  text-align: right;
+  outline: none;
+}
+
+.db-date-time::placeholder { color: var(--text-3); }
+.db-date-time:hover { border-color: var(--hairline); }
+
+.db-date-time:focus {
+  border-color: var(--accent-line);
+  background: var(--surface);
+}
+
+/* ---- the month ---- */
+
+.db-cal-head {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 0 0 4px;
+}
+
+.db-cal-title {
+  flex: 1;
+  color: var(--text);
+  font: 500 var(--fs-ui) / 1 var(--font-ui);
+  text-align: center;
+}
+
+.db-cal-nav {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: none;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.db-cal-nav:hover { background: var(--hover-strong); color: var(--text); }
+
+.db-cal-grid { user-select: none; }
+.db-cal-week { display: grid; grid-template-columns: repeat(7, 1fr); }
+
+.db-cal-dow {
+  padding: 2px 0 4px;
+  color: var(--text-3);
+  font: 500 var(--fs-micro) / 1 var(--font-ui);
+  text-align: center;
+}
+
+/* A day is a 26px square. The radius is a squircle-ish 7px rather than a circle, because a
+   circle on a 7-column grid leaves visible wedges between neighbours and reads as a row of
+   beads instead of a calendar. 26 rather than 30 is what lets the whole panel — two bounds,
+   six weeks, and the two toggles — fit in the room a 900px window has under a cell. */
+.db-cal-day {
+  width: 100%;
+  height: 26px;
+  padding: 0;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: var(--text);
+  font: 400 var(--fs-ui) / 1 var(--font-ui);
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+  transition: background-color var(--t-hover) ease, color var(--t-hover) ease;
+}
+
+.db-cal-day:hover { background: var(--hover-strong); }
+.db-cal-day.is-outside { color: var(--text-3); }
+
+/* The band between the bounds is a *tint*, and the two ends are the only filled squares —
+   which is what makes a range read as one object rather than as two selected days. */
+.db-cal-day.is-band { background: var(--hover); border-radius: 0; }
+.db-cal-day.is-band:hover { background: var(--hover-strong); }
+
+.db-cal-day.is-start,
+.db-cal-day.is-end {
+  background: var(--accent);
+  color: var(--canvas);
+  font-weight: 500;
+}
+
+.db-cal-day.is-start:hover,
+.db-cal-day.is-end:hover { background: var(--accent); }
+
+/* An unfilled end while a range is being chosen: the fill is the *promise*, not the value. */
+.db-cal-day.is-end:not(.is-start) { opacity: 0.75; }
+
+.db-cal-day.is-today { box-shadow: inset 0 0 0 1px var(--hairline-strong); }
+.db-cal-day.is-today.is-start,
+.db-cal-day.is-today.is-end { box-shadow: none; }
+
+.db-cal-day:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: -2px;
+}
+
+/* ---- the foot ---- */
+
+.db-date-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 4px 4px 0;
+}
+
+.db-date-link {
+  padding: 2px 0;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--accent);
+  font: 500 var(--fs-meta) / 1.4 var(--font-ui);
+  cursor: pointer;
+}
+
+.db-date-link:hover { text-decoration: underline; }
+
+/* The two toggles sit *below* the calendar on purpose: switching `End date` adds a row
+   above the grid, and a control that shoves the thing under the pointer is worse than one
+   that shuttles the footer. */
+.db-date-panel .db-menu-item { margin-top: 1px; }

@@ -16,10 +16,28 @@ import type { CellValue } from "../types";
  * the wishlist's "same day lasting 8 hours".
  */
 
-interface DateConfig {
-  format?: "iso" | "dmy" | "mdy" | "long";
+export const dateFormatNames = ["iso", "dmy", "mdy", "long"] as const;
+export type DateFormat = (typeof dateFormatNames)[number];
+
+export interface DateConfig {
+  format?: DateFormat;
   includeTime?: boolean;
   timeFormat?: "12" | "24";
+}
+
+/**
+ * The config with its defaults filled, in the shape the formatter and the picker both
+ * read. `configSchemas.date` fills these on the server, but `formatCell` is also called
+ * with a half-built config from the property menu's own previews, and with `undefined`
+ * on a column that has never been saved.
+ */
+export function dateConfigOf(config?: unknown): Required<DateConfig> {
+  const raw = (config ?? {}) as DateConfig;
+  return {
+    format: raw.format && dateFormatNames.includes(raw.format) ? raw.format : "iso",
+    includeTime: Boolean(raw.includeTime),
+    timeFormat: raw.timeFormat === "12" ? "12" : "24",
+  };
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
@@ -45,52 +63,79 @@ function normalizeFloating(raw: unknown): string | null {
   return `${at.getFullYear()}-${pad(at.getMonth() + 1)}-${pad(at.getDate())}`;
 }
 
-const parts = (value: CellValue): { start: string | null; end: string | null } => {
+/**
+ * A stored value as its two bounds. Exported because the picker must agree with the
+ * formatter about what the cell *is*: two implementations of "read a date value" would
+ * eventually disagree about a string the server accepted.
+ */
+export const dateBounds = (value: CellValue): { start: string | null; end: string | null } => {
   const record = asRecord(value);
   if (!record) return { start: normalizeFloating(value), end: null };
   return { start: normalizeFloating(record.start), end: normalizeFloating(record.end) };
 };
 
 /** The text up to the minute, or the day alone — enough to compare and to filter. */
-const key = (value: CellValue): string | null => parts(value).start;
+const key = (value: CellValue): string | null => dateBounds(value).start;
 
 const dayOf = (value: string): string => value.slice(0, 10);
 
-function renderOne(value: string, config: DateConfig): string {
+function renderOne(value: string, config: DateConfig): { day: string; time: string | null } {
   const [date, time] = value.split("T");
-  const [year, month, day] = date.split("-");
-  const includeTime = Boolean(config.includeTime) && time !== undefined;
-  let head: string;
+  /* The time is drawn only when the column *shows* times and this value has one. Turning
+     "Include time" off hides the clocks; it does not throw them away, so turning it back
+     on finds them again. */
+  return {
+    day: dayHead(date, config),
+    time: Boolean(config.includeTime) && time ? clockText(time, config) : null,
+  };
+}
+
+/** The date part, in this column's format. */
+export function dayHead(day: string, config: DateConfig): string {
+  const [year, month, date] = day.split("-");
   switch (config.format ?? "iso") {
-    case "dmy": head = `${day}/${month}/${year}`; break;
-    case "mdy": head = `${month}/${day}/${year}`; break;
-    case "long": head = `${Number(day)} ${MONTHS[Number(month) - 1]} ${year}`; break;
-    default: head = date;
+    case "dmy": return `${date}/${month}/${year}`;
+    case "mdy": return `${month}/${date}/${year}`;
+    case "long": return `${Number(date)} ${MONTHS[Number(month) - 1]} ${year}`;
+    default: return day;
   }
-  if (!includeTime) return head;
+}
+
+/** A time, on this column's clock. */
+export function clockText(time: string, config: DateConfig): string {
   const [hour, minute] = time.split(":").map(Number);
-  const tail = (config.timeFormat ?? "24") === "12"
+  return (config.timeFormat ?? "24") === "12"
     ? `${((hour + 11) % 12) + 1}:${String(minute).padStart(2, "0")} ${hour < 12 ? "AM" : "PM"}`
     : `${String(hour).padStart(2, "0")}:${String(minute).padStart(2, "0")}`;
-  return `${head} ${tail}`;
 }
+
+const join = ({ day, time }: { day: string; time: string | null }) => (time ? `${day} ${time}` : day);
 
 export const dateProperty: PropertyTypeSpec<DateConfig> = {
   type: "date",
   label: "Date",
   empty: () => null,
   coerce: (raw) => {
-    const { start, end } = parts(raw as CellValue);
+    const { start, end } = dateBounds(raw as CellValue);
     if (start === null) return null;
     return end === null || end < start ? { start, end: null } : { start, end };
   },
   isEmpty: (value) => key(value) === null,
   compare: (a, b) => compareNullable(key(a), key(b), (left, right) => left < right ? -1 : left > right ? 1 : 0),
   format: (value, config) => {
-    const { start, end } = parts(value);
+    const cfg = dateConfigOf(config);
+    const { start, end } = dateBounds(value);
     if (start === null) return "";
-    const head = renderOne(start, config ?? {});
-    return end === null ? head : `${head} → ${renderOne(end, config ?? {})}`;
+    const from = renderOne(start, cfg);
+    if (end === null) return join(from);
+    const to = renderOne(end, cfg);
+    /* One day, two clocks: `Oct 30, 2026 14:30 → 16:30`. Repeating the date would spend
+       the cell's width restating a fact it just stated, and a range *inside* a day is
+       exactly the wishlist's "same day lasting 8 hours".
+       An untimed end on that same day adds nothing at all (it names the same day), so it
+       draws as one date rather than as a range of zero length. */
+    if (from.day === to.day) return to.time ? `${join(from)} → ${to.time}` : join(from);
+    return `${join(from)} → ${join(to)}`;
   },
   fits: (operator, value, operand) => {
     const left = key(value);

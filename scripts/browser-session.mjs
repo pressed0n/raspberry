@@ -188,6 +188,15 @@ export async function openBrowser({
   await send("Page.enable");
   await send("DOM.enable");
 
+  /* The window is not the viewport, and the difference was never in the log line.
+     `--window-size=390,844` asks for a *window*: Windows refuses to make one narrower than
+     about 500px, and the frame takes a bite out of both dimensions anyway. So a probe that
+     printed `@ 390x844` was measuring 500x746, and one that printed `@ 1400x900` was
+     measuring 1378x802 — a claim about a layout nobody had actually looked at (found by the
+     date probe, which asserts the picker is inside the viewport at 390 and reported a 500px
+     one). This pins the page viewport to the numbers the log line and `report()` print. */
+  await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: false });
+
   if (guardWrites) {
     await send("Page.addScriptToEvaluateOnNewDocument", { source: writeGuardSource(url) });
   }

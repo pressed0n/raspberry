@@ -1,5 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { GUTTER, atPointer, atRect, placeMenu, type MenuAnchor } from "../src/lib/menu-place";
 
 /* Two anchors, one function. The suites that matter here are the ones the browser
@@ -96,4 +97,24 @@ test("a rect anchor defaults to end alignment, a pointer anchor to start", () =>
   assert.equal(placeMenu(atRect({ x: 700, y: 400, width: 0, height: 0 }), SIZE, VIEW).left, 700 - 220);
   assert.equal(atPointer(700, 400).align, "start");
   assert.equal(placeMenu(atPointer(700, 400), SIZE, VIEW).left, 700);
+});
+
+/* `MenuSub` used to close on its wrapper's `mouseleave`. The surface is a portal but a React
+   child of the row, so entering the *surface* is not a leave — and that true statement is why
+   nobody looked at the 6px strip between them, which is neither box, belongs to the parent
+   menu, and therefore IS a leave: the surface unmounted mid-crossing and the owner reported it
+   as "the window disappears 70% of the time" (a flick lands past the strip, a deliberate move
+   lands in it). The fix is positional — close on the first pointer move that is on neither the
+   row, the surface, nor the strip between them.
+
+   The browser probe `scripts/verify-db-submenu-hover.mjs` is what proves the behaviour, but it
+   needs a disposable instance and a real pointer. This is the cheap guard that fails in the
+   suite the moment somebody restores the leave handler or drops the corridor check, which is
+   the failure both of those bugs actually were: a plausible mechanism, reintroduced. */
+test("a submenu is closed by where the pointer is, not by mouseleave", () => {
+  const source = readFileSync(new URL("../src/components/database/menu.tsx", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /onMouseLeave/, "no leave handler: the 6px strip between a row and its surface is outside both boxes, so a leave fires while the pointer is on its way in");
+  assert.match(source, /addEventListener\("pointermove"/, "the corridor rule needs a pointermove listener");
+  assert.match(source, /capture: true/, "capturing, so a row that stops propagation cannot hide the pointer's departure");
+  assert.match(source, /<MenuSurface ref=/i, "the rule needs the surface's rect, so the submenu must hand its ref down");
 });

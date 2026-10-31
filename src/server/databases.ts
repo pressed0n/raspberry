@@ -28,6 +28,7 @@ import {
 } from "../lib/database/types";
 import { resolveProperty, type PropertyTypeSpec } from "../lib/database/properties";
 import { convertCell } from "../lib/database/convert";
+import { pruneOptionValue } from "../lib/database/property-types/groups";
 import type { Database, Sql } from "./database";
 import { AppError, access, databaseScope, fingerprint, receipt, remember, type Actor } from "./service";
 
@@ -104,6 +105,11 @@ function view(row: Row): ViewDef {
   const type = viewTypeSchema.catch("table").parse(row.type) as ViewType;
   return { id: text(row.id), name: text(row.name), type, config: readViewConfig(row.config), position: Number(row.position ?? 0) };
 }
+
+/* The three types whose values are *ids into the property's config*. Deleting one of
+   those ids is a config write that also orphans cells, which is why `patchProperty`
+   prunes them — see the note there. */
+const optionPropertyTypes = new Set<PropertyType>(["select", "multiSelect", "status"]);
 
 export class DatabaseService {
   constructor(private readonly database: Database) {}
@@ -287,6 +293,30 @@ export class DatabaseService {
         "UPDATE database_properties SET name=$1,type=$2,config=$3,icon=$4 WHERE id=$5",
         [data.name ?? text(row.name), nextType, JSON.stringify(config.value), data.icon !== undefined ? data.icon || null : text(row.icon) || null, propertyId],
       );
+      /* A tag lives in the property's config, so deleting one — or deleting a whole
+         status group, which takes its tags with it — is a config write, and every cell
+         that stored one of those ids is now pointing at nothing. Prune them here, in the
+         same transaction: the owner asked for exactly this ("any cell using them is
+         cleared"), and a deleted tag that keeps rendering in a cell is a row that no
+         longer says anything true. A cell with nothing left is deleted, which is how
+         every other empty value is stored. */
+      if (data.config !== undefined && optionPropertyTypes.has(nextType)) {
+        const surviving = new Set(
+          ((config.value.options as { id?: unknown }[] | undefined) ?? [])
+            .map((option) => (typeof option?.id === "string" ? option.id : ""))
+            .filter((optionId) => optionId !== ""),
+        );
+        const cells = await sql.query("SELECT row_id,value FROM database_cells WHERE property_id=$1 AND value IS NOT NULL", [propertyId]);
+        for (const cell of cells) {
+          let stored: CellValue = null;
+          try { stored = JSON.parse(text(cell.value)) as CellValue; } catch { continue; }
+          const pruned = pruneOptionValue(stored, surviving);
+          if (pruned === stored) continue;
+          const rowId = text(cell.row_id);
+          if (pruned === null) await sql.query("DELETE FROM database_cells WHERE row_id=$1 AND property_id=$2", [rowId, propertyId]);
+          else await sql.query("UPDATE database_cells SET value=$1,updated_at=$2 WHERE row_id=$3 AND property_id=$4", [JSON.stringify(pruned), now, rowId, propertyId]);
+        }
+      }
       await sql.query("UPDATE databases SET revision=revision+1,updated_at=$1 WHERE id=$2", [now, id]);
       const result = await this.read(sql, actor, id);
       await remember(sql, actor, data.mutationId, hash, result);

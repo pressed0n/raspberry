@@ -19,17 +19,13 @@
        database row does this so the pair can hang in the page margin *outside* the
        table's own box. */
 
-import type { PointerEvent as ReactPointerEvent, ReactNode, Ref } from "react";
-import { AddGlyph, GripGlyph } from "@/components/grip-glyphs";
+import type { ReactNode, Ref } from "react";
+import { AddGlyph, GripButton, type GripPointerHandlers } from "@/components/grip-glyphs";
 
-/** The handlers a grip needs when it is a drag source rather than a button that opens
- *  something. Passed through untouched so the caller owns the gesture. */
-export type GripPointerHandlers = {
-  onPointerDown?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
-  onPointerMove?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
-  onPointerUp?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
-  onPointerCancel?: (event: ReactPointerEvent<HTMLButtonElement>) => void;
-};
+/* The handlers a grip needs when it is a drag source rather than a button that opens
+   something now live with the grip button itself, in `grip-glyphs.tsx`, because a menu
+   row drags the same grip. Re-exported so a pair's caller keeps one import. */
+export type { GripPointerHandlers };
 
 export type FrameAnchorProps = {
   /** What the `+` does. Always required: a pair without it is the one object on the
@@ -95,30 +91,14 @@ export function FrameAnchor({
       >
         <AddGlyph />
       </button>
-      <button
-        type="button"
-        className={`frame-grip${gripOpen ? " is-open" : ""}${gripClass ? ` ${gripClass}` : ""}`}
-        aria-label={gripLabel}
-        title={gripLabel}
-        aria-expanded={onGrip ? gripOpen : undefined}
-        data-test={gripTest}
-        onMouseDown={(event) => {
-          event.preventDefault();
-          event.stopPropagation();
-        }}
-        onClick={
-          onGrip
-            ? (event) => {
-                event.preventDefault();
-                event.stopPropagation();
-                onGrip();
-              }
-            : undefined
-        }
-        {...gripPointer}
-      >
-        <GripGlyph />
-      </button>
+      <GripButton
+        label={gripLabel}
+        extraClass={gripClass}
+        open={gripOpen}
+        onPress={onGrip}
+        test={gripTest}
+        pointer={gripPointer}
+      />
       {children}
     </div>
   );

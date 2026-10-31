@@ -26,6 +26,10 @@ const GAP = 6;
 const EDGE = GUTTER;
 const SUBMENU_WIDTH = 200;
 const MIN_BELOW = 220;
+/* The least a side submenu is allowed to show of itself. Below this it stops tracking its
+   row's top edge and sits up against the bottom of the window instead, because a menu that
+   is anchored perfectly and half off-screen is worse than one that is merely offset. */
+const MIN_TALL = 160;
 
 /**
  * Where a menu should sit, given the thing that opened it.
@@ -36,19 +40,31 @@ const MIN_BELOW = 220;
  * horizontal flip on purpose, while a submenu flies out to the right of its row and must
  * flip left when the window is narrow. What is shared — the 8px gutter — is imported.
  */
-export function menuStyle(anchor: DOMRect, width: number, maxHeight: number, side: "below" | "right" = "below"): CSSProperties {
+export function menuStyle(anchor: DOMRect, width: number, maxHeight: number, side: "below" | "right" = "below", preferHeight = MIN_BELOW): CSSProperties {
   if (side === "right") {
     const flipLeft = anchor.right + GAP + width > window.innerWidth - EDGE;
+    /* The vertical reserve used to be a flat 120px, which assumed every submenu was
+       short. The tag colour list is 408px, so on a 1440x900 window (a 1378x802 viewport)
+       its lower half — including the last colour — sat below the fold and could not be
+       clicked: `elementFromPoint` there answers `null`, because it is off-screen.
+       So the panel is capped to the room that actually remains and scrolls inside
+       itself, and it only leaves its row's top edge when the room is under 160px. */
+    let top = Math.max(EDGE, Math.min(anchor.top - 4, window.innerHeight - EDGE - 120));
+    if (window.innerHeight - EDGE - top < MIN_TALL) top = Math.max(EDGE, window.innerHeight - EDGE - MIN_TALL);
     return {
       left: flipLeft ? Math.max(EDGE, anchor.left - GAP - width) : anchor.right + GAP,
-      top: Math.min(anchor.top - 4, window.innerHeight - EDGE - 120),
+      top,
       width,
-      maxHeight,
+      maxHeight: Math.max(MIN_TALL, Math.min(maxHeight, window.innerHeight - EDGE - top)),
     };
   }
   const below = window.innerHeight - anchor.bottom - EDGE;
   const above = anchor.top - EDGE;
-  const flip = below < MIN_BELOW && above > below;
+  /* `preferHeight` is the point at which the surface would rather be somewhere else — the
+     date picker is ~380px tall and knows it, so a cell near the bottom of the window gets the
+     surface *above* it instead of a scrolled one with its two toggles under the fold. A menu
+     of rows keeps the old 220, because it is height-clamped and scrolls by design. */
+  const flip = below < preferHeight && above > below;
   return {
     left: Math.max(EDGE, Math.min(anchor.left, window.innerWidth - width - EDGE)),
     ...(flip ? { bottom: window.innerHeight - anchor.top + GAP } : { top: anchor.bottom + GAP }),
@@ -66,7 +82,7 @@ export function menuStyle(anchor: DOMRect, width: number, maxHeight: number, sid
 export function useAnchoredStyle(
   open: boolean,
   anchor: RefObject<HTMLElement | null>,
-  { width = 252, maxHeight = 460, side = "below" as "below" | "right", extra = 0 } = {},
+  { width = 252, maxHeight = 460, side = "below" as "below" | "right", extra = 0, preferHeight = MIN_BELOW } = {},
 ): CSSProperties | null {
   const [style, setStyle] = useState<CSSProperties | null>(null);
 
@@ -74,7 +90,7 @@ export function useAnchoredStyle(
     if (!open || !anchor.current) return;
     const place = () => {
       if (!anchor.current) return;
-      setStyle(menuStyle(anchor.current.getBoundingClientRect(), width + extra, maxHeight, side));
+      setStyle(menuStyle(anchor.current.getBoundingClientRect(), width + extra, maxHeight, side, preferHeight));
     };
     place();
     window.addEventListener("resize", place);
@@ -83,7 +99,7 @@ export function useAnchoredStyle(
       window.removeEventListener("resize", place);
       window.removeEventListener("scroll", place, true);
     };
-  }, [open, anchor, width, maxHeight, side, extra]);
+  }, [open, anchor, width, maxHeight, side, extra, preferHeight]);
 
   return open ? style : null;
 }
@@ -131,9 +147,13 @@ export function useMenuDismiss(open: boolean, onClose: () => void) {
   }, [open, onClose]);
 }
 
-/** Arrow-key traversal for any menu surface. Enter/Space are native button behaviour. */
+/** Arrow-key traversal for any menu surface. Enter/Space are native button behaviour.
+    A key pressed *in a field* belongs to the field: the tag menu's search box and the
+    property menu's name input both live inside a surface, and swallowing their arrows
+    to move focus to a menu row would take the caret away mid-word. */
 function onMenuKeys(event: React.KeyboardEvent<HTMLDivElement>) {
   if (!["ArrowDown", "ArrowUp", "Home", "End"].includes(event.key)) return;
+  if ((event.target as Element | null)?.closest("input, textarea, select, [contenteditable]")) return;
   const items = [...event.currentTarget.querySelectorAll<HTMLElement>("[data-menuitem]:not([disabled])")];
   if (!items.length) return;
   event.preventDefault();
@@ -155,7 +175,13 @@ export function MenuSurface({
   className = "",
   side = "below",
   maxHeight = 460,
+  /* What the surface *is*, for assistive tech. `menu` is right for a list of actions; a
+     surface that contains a calendar and two fields is a `dialog`, and calling it a menu
+     would announce a text field as a menu item's sibling. */
+  role = "menu",
+  preferHeight,
   children,
+  ref,
 }: {
   anchor: RefObject<HTMLElement | null>;
   open: boolean;
@@ -164,14 +190,23 @@ export function MenuSurface({
   className?: string;
   side?: "below" | "right";
   maxHeight?: number;
+  role?: "menu" | "dialog";
+  /* How tall the surface wants to be, when it knows. Under this much room below, it flips
+     above the anchor instead of scrolling — the date picker's calendar plus its two toggles
+     do not survive being cut in half. Omitted, a menu keeps the 220px threshold. */
+  preferHeight?: number;
   children: ReactNode;
+  /* The node itself, for the one caller that needs to measure it: `MenuSub` asks where the
+     surface landed so it can tell a pointer crossing into it from a pointer walking away. */
+  ref?: React.Ref<HTMLDivElement>;
 }) {
-  const style = useAnchoredStyle(open, anchor, { width, maxHeight, side });
+  const style = useAnchoredStyle(open, anchor, { width, maxHeight, side, preferHeight });
   if (!open || !style || typeof document === "undefined") return null;
   return createPortal(
     <div
+      ref={ref}
       data-db-popover=""
-      role="menu"
+      role={role}
       className={`db-menu ${className}`.trim()}
       style={style}
       onKeyDown={onMenuKeys}
@@ -208,6 +243,7 @@ export function MenuItem({
   disabled,
   onSelect,
   trailing,
+  role = "menuitem",
 }: {
   icon?: ReactNode;
   label: string;
@@ -217,11 +253,15 @@ export function MenuItem({
   disabled?: boolean;
   onSelect?: () => void;
   trailing?: ReactNode;
+  /* `button`, for the rows of a surface that is a `dialog` rather than a `menu` — the
+     date picker's `End date` / `Include time` toggles. The row is still a button and
+     still a menu row; only the announcement changes. */
+  role?: "menuitem" | "button";
 }) {
   return (
     <button
       type="button"
-      role="menuitem"
+      role={role}
       data-menuitem=""
       disabled={disabled}
       title={hint}
@@ -230,10 +270,50 @@ export function MenuItem({
     >
       {icon ? <span className="db-menu-icon">{icon}</span> : null}
       <span className="db-menu-label">{label}</span>
+      {/* The sample first, the tick last: an item that both shows what it renders and is
+          the current setting reads "1,234 ✓", and the tick stays in one column whichever
+          items carry a sample. A bare text node here would sit under the label instead,
+          which is why this is the same `.db-menu-value` the submenu rows use. */}
+      {trailing ? <span className="db-menu-value">{trailing}</span> : null}
       {check ? <span className="db-menu-check" aria-hidden>✓</span> : null}
-      {trailing}
     </button>
   );
+}
+
+/* One submenu at a time, app-wide.
+   ---------------------------------------------------------------------------
+   Hovering a sibling row has to *exchange* surfaces instantly rather than stack two, and
+   the rows are independent components inside one menu with no shared state to say which is
+   open. This is the smallest thing that carries that fact; it lives at module scope because
+   the alternative is threading a context through every menu for one boolean. */
+let activeSub: { anchor: HTMLElement; close: () => void } | null = null;
+
+/** The surface's edge that faces the row — the base of the safe triangle below. */
+function nearEdge(panel: DOMRect, row: DOMRect) {
+  return panel.left >= row.right
+    ? { x: panel.left, top: panel.top, bottom: panel.bottom }
+    : { x: panel.right, top: panel.top, bottom: panel.bottom };
+}
+
+/**
+ * Amazon's "safe triangle", which every menu that flies out to the side has had for
+ * twenty-five years: a pointer inside the triangle between where it last was on the row
+ * and the near edge of the surface is on its way here, and nothing may dismiss it.
+ *
+ * Without it, the corridor in `MenuSub` only helps a crossing that is *horizontal*. Reach
+ * for the second or third item of a submenu and the hand travels right and down at once,
+ * leaving the row's 32px band while still ~60px inside the parent — where "not on the row"
+ * fired and the surface vanished. That is the same complaint as the 6px gap, one dimension
+ * later, and it lands on the rows people reach for most: everything below the first item.
+ */
+function inSafeTriangle(x: number, y: number, apex: { x: number; y: number }, edge: ReturnType<typeof nearEdge>): boolean {
+  const half = (ax: number, ay: number, bx: number, by: number) => (x - bx) * (ay - by) - (ax - bx) * (y - by);
+  const sides = [
+    half(apex.x, apex.y, edge.x, edge.top),
+    half(edge.x, edge.top, edge.x, edge.bottom),
+    half(edge.x, edge.bottom, apex.x, apex.y),
+  ];
+  return !(sides.some((side) => side < 0) && sides.some((side) => side > 0));
 }
 
 /**
@@ -242,14 +322,115 @@ export function MenuItem({
  * Hover opens it (matches every menu a person already knows); focus and click open it
  * too, so it is reachable by keyboard and on a touch screen, where hover never fires.
  */
-export function MenuSub({ icon, label, disabled, children }: { icon?: ReactNode; label: string; disabled?: boolean; children: ReactNode }) {
+export function MenuSub({ icon, label, trailing, disabled, children }: { icon?: ReactNode; label: string; trailing?: ReactNode; disabled?: boolean; children: ReactNode }) {
   const anchor = useRef<HTMLButtonElement>(null);
+  const surface = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
   const close = useCallback(() => setOpen(false), []);
   useMenuDismiss(open, close);
 
+  /* Where the pointer last was *on the row*: the apex of the safe triangle, and null until
+     it has been there at all, so a submenu opened by focus or by a tap has no triangle. */
+  const approach = useRef<{ x: number; y: number } | null>(null);
+
+  /* Opening also closes whichever submenu was open before it. That is what keeps the
+     sibling exchange instant now that the triangle can overlap a neighbouring row: one
+     surface is up at any moment, and it is always the one the pointer is over. */
+  const openSelf = useCallback(() => {
+    const self = anchor.current;
+    if (!self) return;
+    if (activeSub && activeSub.anchor !== self) activeSub.close();
+    activeSub = { anchor: self, close };
+    setOpen(true);
+  }, [close]);
+
+  /* Open on `click` and never toggle.
+     A touch screen delivers a whole sequence for one tap — pointerover, `mouseenter`,
+     focus, then `click`. With a toggle, the `click` closed the surface the `mouseenter`
+     had just opened, so a submenu could not be used with a finger at all. Opening is
+     idempotent; moving away, Escape and a press anywhere else are what close it.
+
+     WHAT CLOSES IT, AND WHY IT IS NOT `mouseleave`
+     ---------------------------------------------------------------------------
+     This used to close on the wrapper's `mouseleave`, on the reasoning that the portal is
+     a *React child* of the wrapper even though it is not a DOM child, so React's
+     enter/leave tracking would not see a crossing into it. That part is true — and it is
+     not the problem. The surface is placed `GAP` (6px) off the row's edge, and the strip in
+     between is *neither* box: the topmost element there is the parent `.db-menu` itself,
+     which is an ancestor, so React fires the wrapper's `mouseleave` and the surface
+     unmounts before the pointer can arrive.
+
+     Measured at 1400x900, one pointer sample per pixel: row right edge 1034, surface left
+     edge 1040, `document.elementFromPoint(1035..1039)` → `div.db-menu.db-prop-menu`. The
+     first sample past 1034 kills it. A flick sends one sample that lands past the strip
+     and survives, which is why this looked like "70% of the time" — it was never random,
+     it was cursor speed, and it is why the old probe (four hops, the first already inside
+     the surface) passed on the broken code. `scripts/verify-db-submenu-hover.mjs` is the
+     probe that does not.
+
+     So the rule is now positional rather than event-shaped: while a submenu is open, it
+     closes on the first pointer move that is on neither its row, its surface, nor the
+     strip between them. The strip is a corridor, not a gap: a pointer crossing it is by
+     definition on its way here, and one that drifts to another row is not in the corridor
+     (every row ends at the row's right edge), so siblings still exchange instantly instead
+     of briefly showing two surfaces.
+
+     THE SAME BUG ONE DIMENSION LATER
+     ---------------------------------------------------------------------------
+     The corridor only helps a crossing that is *horizontal*. A hand reaching for the second
+     item of a submenu travels right and down at once, and leaves the row's 32px band while
+     still ~60px inside the parent — neither row, nor surface, nor corridor — so the surface
+     closed on a gesture that was unmistakably on its way here. That is every submenu item
+     below the first, which is most of them. `inSafeTriangle` above is the fix, and the
+     direction test beside it is what keeps a hand heading *away* closing the menu, so
+     "hover a plain sibling row" still means what it did. */
+  useEffect(() => {
+    if (!open) return;
+    const onMove = (event: PointerEvent) => {
+      const row = anchor.current;
+      const panel = surface.current;
+      if (!row || !panel) return;
+      const r = row.getBoundingClientRect();
+      const p = panel.getBoundingClientRect();
+      const { clientX: x, clientY: y } = event;
+      const within = (b: DOMRect) => x >= b.left && x <= b.right && y >= b.top && y <= b.bottom;
+      /* The strip, whichever side the surface flipped to. One pixel of slack each way so
+         rounding cannot leave a sub-pixel dead column; the vertical span is the two boxes
+         together, so a diagonal approach to the top of a tall surface stays inside it. */
+      const [stripLeft, stripRight] = p.right <= r.left ? [p.right, r.left] : [r.right, p.left];
+      const inStrip =
+        x >= stripLeft - 1 &&
+        x <= stripRight + 1 &&
+        y >= Math.min(r.top, p.top) - 2 &&
+        y <= Math.max(r.bottom, p.bottom) + 2;
+      if (within(r)) {
+        /* The last position on the row is the apex of the triangle formed below. */
+        approach.current = { x, y };
+        return;
+      }
+      if (within(p) || inStrip) return;
+      /* On its way here: inside the triangle from that apex to the surface's near edge,
+         and moving toward that edge rather than away from it. The direction is what keeps
+         "hover a sibling row" closing — a hand heading left or straight down is not
+         reaching for this surface, and the sibling's own `openSelf` takes over anyway. */
+      const from = approach.current;
+      if (from && Math.sign(x - from.x) === Math.sign((p.left >= r.right ? p.left : p.right) - from.x)
+        && inSafeTriangle(x, y, from, nearEdge(p, r))) return;
+      close();
+    };
+    /* Capture, so a row that stops propagation cannot hide the pointer's departure. Passive,
+       because nothing here may cancel a scroll. */
+    window.addEventListener("pointermove", onMove, { capture: true, passive: true });
+    return () => {
+      window.removeEventListener("pointermove", onMove, { capture: true });
+      /* Whoever is open owns the pointer; a submenu that unmounts or is closed by Escape
+         must not leave its anchor registered as the one surface on screen. */
+      if (activeSub?.anchor === anchor.current) activeSub = null;
+    };
+  }, [open, close]);
+
   return (
-    <div className="db-menu-sub" onMouseLeave={close}>
+    <div className="db-menu-sub">
       <button
         ref={anchor}
         type="button"
@@ -259,15 +440,16 @@ export function MenuSub({ icon, label, disabled, children }: { icon?: ReactNode;
         aria-haspopup="menu"
         aria-expanded={open}
         className={`db-menu-item db-menu-row${disabled ? " is-disabled" : ""}`}
-        onMouseEnter={() => setOpen(true)}
-        onFocus={() => setOpen(true)}
-        onClick={() => setOpen((was) => !was)}
+        onMouseEnter={openSelf}
+        onFocus={openSelf}
+        onClick={openSelf}
       >
         {icon ? <span className="db-menu-icon">{icon}</span> : null}
         <span className="db-menu-label">{label}</span>
+        {trailing ? <span className="db-menu-value">{trailing}</span> : null}
         <ChevronRight size={13} className="db-menu-caret" aria-hidden />
       </button>
-      <MenuSurface anchor={anchor} open={open} onClose={close} width={SUBMENU_WIDTH} side="right">
+      <MenuSurface ref={surface} anchor={anchor} open={open} onClose={close} width={SUBMENU_WIDTH} side="right">
         {children}
       </MenuSurface>
     </div>

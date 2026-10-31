@@ -59,14 +59,24 @@ not the paragraph.
 
 ## Before believing a 500
 
-`src/server/runtime.ts` memoises service **instances** on **`globalThis`** — deliberately
-outside the module graph, so they survive a hot reload. That is what makes them stale:
-editing a service class re-evaluates the class, but the stored instance keeps running the old
-one, so a method you added a minute ago answers `is not a function` and the route returns
-**500** — which looks exactly like a bug in the new method.
+`src/server/runtime.ts` parks the database handle and the two service **instances** on
+**`globalThis`** — deliberately outside the module graph, so they survive a hot reload. The instance
+is what goes stale: editing a service class re-evaluates the class while the stored instance keeps
+running the old one, so a method you added a minute ago answers `is not a function` and the route
+returns **500**, or — worse — a validator you widened rejects the new value with a message written by
+code that no longer exists on disk. The second one shipped: the UI offered a sort direction and the
+server answered `Invalid option: expected one of "ascending"|"descending"`, because the UI had
+reloaded and the parked instance had not.
 
-**Restart `Start-Raspberry.cmd` after adding a server method.** This has cost more
-debugging time here than any other single cause.
+The wrappers are now tagged with the class that built them and are rebuilt when a reload replaces
+that class, so a new method or a widened schema is live on the next request. **What still needs
+`Start-Raspberry.cmd` restarted is a migration** (it runs when the connection opens) and anything
+you change inside `openDatabase`.
+
+And the rule behind it, which is the part that generalises: **a probe starts a new process, so a
+green probe proves the source and nothing about the process the owner is looking at.** When he says
+a fix did not work and every probe passed, ask the running server — `docs/TESTING.md` § "Staleness,
+before believing a 500" has the message-quotes-the-validator trick that answers it in one request.
 
 ## Running things
 

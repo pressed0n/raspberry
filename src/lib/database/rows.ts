@@ -7,6 +7,7 @@ import {
   type FilterOperator,
   type PropertyDef,
   type RowDef,
+  type SortDirection,
   type ViewConfig,
 } from "./types";
 
@@ -76,7 +77,7 @@ export function matches(database: DatabaseSchema, row: RowDef, filters: ViewConf
 export function nextSorts(
   sorts: ViewConfig["sorts"],
   propertyId: string,
-  direction: "ascending" | "descending" | null,
+  direction: SortDirection | null,
 ): ViewConfig["sorts"] {
   if (!direction) return sorts.filter((sort) => sort.propertyId !== propertyId);
   const index = sorts.findIndex((sort) => sort.propertyId === propertyId);
@@ -107,15 +108,21 @@ export function sortRows(database: DatabaseSchema, rows: RowDef[], sorts: ViewCo
   if (!sorts.length) return rows;
   const keys = sorts.map((sort) => {
     const property = propertyById(database, sort.propertyId);
+    const spec = resolveProperty(property);
     return {
       property,
-      spec: resolveProperty(property),
+      spec,
       config: (property.config ?? {}) as Record<string, unknown>,
       descending: sort.direction === "descending",
+      /* `manual` asks for the order a person arranged, and only the type knows whether it
+         has one. A type without `order` (everything except Select, Multi-select and
+         Status) falls back to `compare`, so a config that says `manual` on a text column
+         still sorts it by text — an unknown direction must never mean "unsorted". */
+      compare: sort.direction === "manual" && spec.order ? spec.order : spec.compare,
     };
   });
   return [...rows].sort((left, right) => {
-    for (const { property, spec, config, descending } of keys) {
+    for (const { property, spec, config, descending, compare } of keys) {
       const a = cellOf(left, property);
       const b = cellOf(right, property);
       /* `isEmpty` is the registry's own answer to "is this nothing?", so this needs no
@@ -124,7 +131,7 @@ export function sortRows(database: DatabaseSchema, rows: RowDef[], sorts: ViewCo
       const aEmpty = spec.isEmpty(a, config);
       const bEmpty = spec.isEmpty(b, config);
       if (aEmpty !== bEmpty) return aEmpty ? 1 : -1;
-      const result = spec.compare(a, b, config);
+      const result = compare.call(spec, a, b, config);
       if (result !== 0) return descending ? -result : result;
     }
     /* Final tie-break on the row's stored order, then id. Without it two rows with

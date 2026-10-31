@@ -53,6 +53,12 @@ quietly delete it.
 `scripts/run-b40-probe.ps1` is the worked example: it copies the project to
 `artifacts/qa-run`, starts a second dev server there on `:3100`, seeds it with
 `scripts/seed-qa.mjs`, runs `scripts/verify-database-b40.mjs` at both widths, and stops it.
+Its descendants follow the same shape on their own ports and directories:
+`:3101` / `run-reorder-probe.ps1` (the tag reorder grip), `:3102` / `run-sort-probe.ps1` (the
+arrangement sort), `:3103` / `run-groups-probe.ps1` (status groups, seeded by
+`seed-qa-groups.mjs`) and `:3104` / `run-dates-probe.ps1` (the date picker, seeded by
+`seed-qa-dates.mjs`). Each re-seeds **per resolution**, because those probes mutate a property's
+config — a shared seed would let the second pass read the first pass's leftovers.
 Three rules make that honest, and each was learned the hard way:
 
 - **`BASE` and `DATABASE_URL` must be set together.** `verify-database-b40.mjs` used to read
@@ -106,6 +112,40 @@ The pattern it encodes, learned the hard way:
 - Run at **1400, 900 and 390** pixels. Layout compromises are width-dependent: below 860px
   the database gutter deliberately becomes a real first column, and the assertion flips
   with it.
+- **The window is not the viewport, and the log line used to lie about it.** `--window-size=390,844`
+  asks Windows for a *window*: it refuses to go under ~500px wide, and the frame takes a bite out of
+  both dimensions — so a run that printed `@ 390x844` was measuring **500×746**, and `@ 1400x900`
+  was measuring **1378×802**. That was true of every probe in this directory until the date picker
+  asserted "the panel is inside the viewport at 390" and reported a 500px one. `openBrowser` now
+  pins the page viewport with `Emulation.setDeviceMetricsOverride`, so `width`/`height` mean what
+  they print. Two probes failed the moment it was fixed — both clicked coordinates outside the page
+  on a column that had scrolled off a phone — which is the point: the earlier numbers were not
+  wrong about the *feature*, they were measured at a width nobody claimed.
+- **Let a throw be a failure.** `report()` ends the process, so `try { … } finally { await
+  b.report(); }` turns an exception into a *green run with fewer checks* — the sort probe printed
+  "OK: 5/5" while twelve of its assertions had never executed. Wrap the body in
+  `catch (error) { b.check("the probe itself ran to the end without throwing", false, String(error?.stack ?? error)); }`
+  and keep `report()` in `finally`. A score is only a score if it was possible to fail.
+- **Make the check fail on the broken code before believing it passes.** The same probe's diagonal
+  check was written after the fix, so the fix was temporarily disabled: `1 surfaces still open` at
+  both widths, then 21/21 with it restored. A probe written against working code has not been
+  tested; it has been *demonstrated*.
+- **Scroll before you click, then hit-test the point.** `.db-menu` is `overflow-y: auto` with a
+  460px cap, so a long menu's later rows have rects *outside* the visible box: in the groups probe
+  the click for a tag in the fourth section landed on the page and the store never happened — at
+  1400px only, because the same menu fits under 460px at 390px. `clickTag`/`clickMenu` in
+  `verify-db-status-groups.mjs` now call `scrollIntoView({ block: "nearest" })` first and then
+  require `document.elementFromPoint(x, y)` to be the target or inside it — a click that lands on
+  the wrong element fails loudly instead of reading as "the feature is broken".
+- **Do not put a backtick inside an `evaluate()` template literal.** These probes are strings of
+  JS built with backticks, so a comment like `` (`.db-menu` is `overflow-y: auto`) `` ends the
+  string and the file fails to *parse* — the error names a line thirty lines down, which reads
+  like a corrupted file rather than a stray character.
+- **An input that opens holding a value will have your typing appended.** The rename field in the
+  groups pane opened with the current name and a caret at the end, so the probe typed
+  "In progressUnderway" and every later assertion was about the wrong tag. The fix belonged in the
+  component (`onFocus={e => e.currentTarget.select()}`), not in the probe — a probe that
+  compensates for the UI is a probe that hides it.
 
 ### The live instance refuses writes, in code
 
@@ -176,6 +216,31 @@ Three things that probe cost, so they are not paid twice:
   `Change type` disabled, and reported a broken feature. A disabled item, or a missing second
   column, is a `SKIP` with its reason printed.
 
+### Proving a drag
+
+`scripts/verify-db-option-reorder.mjs` is the worked example (the tag menu's reorder grip).
+`b.drag(from, to)` completes the whole gesture, which is right for "does dragging work" and
+useless for everything else, because the interesting state only exists *between* press and
+release. Four things it does instead:
+
+- **Dispatch the three phases by hand** — `Input.dispatchMouseEvent` `mouseMoved`, then
+  `mousePressed`, then `mouseMoved` steps (each with `buttons: 1`), then `mouseReleased` — and
+  read the DOM in the middle. That is the only way to see the drop line.
+- **Hit-test the handle's own rectangle before pressing it.** A press that lands on the row
+  instead of the grip still looks like a drag from the outside, and then the assertion passes
+  for the wrong reason. `elementFromPoint` on the grip's centre, asserting it resolves to the
+  grip, costs one call.
+- **Assert that a press that never moves changes nothing** — in the DOM *and* in the stored
+  config. That is the difference between a click and a drag, and it is the half nobody writes.
+- **Read the order back from the server.** A list that redrew itself in the new order proves
+  that React re-rendered, not that the property was reordered; the write is the claim.
+
+Two traps particular to drags in a popover: pointer capture means the other rows never fire
+`pointerenter`, so hit-testing has to be `elementFromPoint` + `closest('[data-option-id]')` —
+and a click inside a *submenu* closes the whole menu (the submenu is portalled outside the
+panel that dismisses itself), so an assertion immediately after one must wait on the stored
+state, not on the drawn list that just unmounted.
+
 ### Assert pixels, not class names
 
 The gutter harness states the principle better than any summary: *"Asserting
@@ -187,13 +252,21 @@ The same harness proves reuse by comparing the row's grip against the block's ow
 plus-then-grip order. A copy can match any one of those; matching all of them at once is
 what "reused the component" means.
 
-## The restart rule, before believing a 500
+## Staleness, before believing a 500
 
-`src/server/runtime.ts` memoises service instances on the module. Adding a server method
-and reloading hot-reloads the class but keeps the old instance, so the new method answers
-`is not a function` and the route returns **500** — indistinguishable from a real bug.
+The process serving the request is not the source tree. `src/server/runtime.ts` parks the database
+handle and the two service wrappers on `globalThis`; the wrappers are keyed on the class that built
+them, so a reload picks up a new method or a new schema without a restart. **A migration is not:
+it runs when the connection opens**, and so does anything you change inside `openDatabase` — those
+still need `Start-Raspberry.cmd` restarted.
 
-**Restart `Start-Raspberry.cmd` after adding a server method, before diagnosing any 500.**
+The general rule, which cost the owner a bug to learn: **a probe starts a new process, so a green
+probe proves the source and says nothing about the process he is looking at.** When a fix "does not
+work" while every probe passes, ask the *running server*, not the copy. A `PATCH` carrying a value
+that is invalid in every version of the schema is safe to send (`patchView` validates the config
+before its `UPDATE`, so it writes nothing) and its error message quotes the validator's own
+vocabulary — if that list does not contain the value you just added, the process is running older
+code than the disk.
 
 ## Checking the documentation itself
 

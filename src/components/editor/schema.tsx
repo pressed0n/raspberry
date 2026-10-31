@@ -71,7 +71,9 @@ const createColumnsBlock = createReactBlockSpec({ type: "columns", propSchema: {
  * with no `.bn-block-outer`, which is fine for a callout but loses the anchor the
  * object-selection machinery (B35) paints a selection ring on.
  *
- * `selectable: false` (B40g) — and `draggable` is left at its default `true`.
+ * `selectable: false` (B40g, finally honoured in B40i — it was in the config, which
+ * BlockNote ignores; see the note on `meta` below) — and `draggable` is left at its
+ * default `true`.
  *
  * A database is an atom whose body is full of its own controls, so ProseMirror's
  * `selectClickedNode` resolved every press on the table's *background* — the filler
@@ -86,8 +88,19 @@ const createColumnsBlock = createReactBlockSpec({ type: "columns", propSchema: {
  * B35 ring are untouched — this only stops a click on the body meaning "selected".
  */
 const createDatabaseBlock = createReactBlockSpec(
-  { type: "database", propSchema: { databaseId: { default: "" }, viewId: { default: "" } }, content: "none", selectable: false },
-  { render: ({ block }) => <DatabaseBlock props={block.props as unknown as Record<string, unknown>} /> },
+  { type: "database", propSchema: { databaseId: { default: "" }, viewId: { default: "" } }, content: "none" },
+  {
+    /* `selectable: false` goes in `meta`, **not** beside `content` above.
+       It sat in the config for three rounds and did nothing: BlockNote 0.56 builds the
+       ProseMirror node spec as `selectable: implementation.meta.selectable` (see
+       `nodeSpec` in `@blocknote/core/dist/blocks-*.js`), reading the *implementation*.
+       The config type accepts the key, so it type-checked, read correctly and was inert —
+       which is why the ring kept coming back however carefully the press guard was drawn.
+       BlockNote then also applies its own `applyNonSelectableBlockFix` to the node view,
+       which is the part that stops a click near the block becoming a node selection. */
+    meta: { selectable: false },
+    render: ({ block }) => <DatabaseBlock props={block.props as unknown as Record<string, unknown>} />,
+  },
 );
 
 const createPageLinkBlock = createReactBlockSpec({ type: "pageLink", propSchema: { pageId: { default: "" }, title: { default: "Untitled" }, relationship: { default: "link", values: ["child", "link"] as const } }, content: "none" }, {
