@@ -16,6 +16,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { RequestError, request } from "@/lib/api-client";
 import type { DatabasePayload, PropertyType } from "@/lib/database/types";
 import { onLivePagesChanged } from "@/lib/page-changes";
+import { onDatabasesChanged } from "@/lib/database-changes";
 
 export type DatabaseLoad =
   | { status: "loading" }
@@ -48,6 +49,21 @@ export function useDatabase(id: string, initial?: DatabasePayload) {
      entry left the table showing the gap until the document was reloaded. */
   useEffect(() => onLivePagesChanged(() => { void reload(); }), [reload]);
 
+  /* B56 — same signal, different cause: another device wrote to this table. The
+     snapshot is one fetch old and the block would otherwise show the values from
+     whenever it mounted.
+
+     `pending` is the guard against the obvious mistake. A reload lands `setLoad` with
+     the server's copy while a write is still in flight, so the payload the write is
+     about to return — and the optimistic state the write already produced — would be
+     replaced by a snapshot taken before it. The write's own response is the newer of
+     the two, so the reload is dropped rather than raced. */
+  const pending = useRef(0);
+  useEffect(() => onDatabasesChanged(() => {
+    if (pending.current > 0) return;
+    void reload();
+  }), [reload]);
+
   /* Applied optimistically by the block's own writes, so a rename or a cell edit
      lands in the same frame as the keystroke and is corrected by the next `reload`
      if the server disagrees. */
@@ -73,6 +89,10 @@ export function useDatabase(id: string, initial?: DatabasePayload) {
   const dismissFailure = useCallback(() => { setFailure(null); setRefusal(null); }, []);
 
   const send = useCallback(async (path: string, method: string, body?: unknown): Promise<DatabasePayload | null> => {
+    /* Counted rather than a boolean: one commit can carry several cells and a
+       property edit can overlap a cell write, and the poller's reload has to wait
+       for the last one to finish before it may replace the payload. */
+    pending.current += 1;
     try {
       const { database } = await request<{ database: DatabasePayload }>(path, {
         method,
@@ -96,6 +116,8 @@ export function useDatabase(id: string, initial?: DatabasePayload) {
       setFailure(error instanceof Error ? error.message : "That change could not be saved.");
       setRefusal(error instanceof RequestError ? { code: error.code, message: error.message, details: error.details } : null);
       return null;
+    } finally {
+      pending.current -= 1;
     }
   }, []);
 

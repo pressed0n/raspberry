@@ -707,6 +707,35 @@ it is proving:
 editor branch, and the probe's first nine checks fail with an `<input class="db-cell-input">` printed
 from inside the formula cell and an empty value — "it currently does nothing", measured.
 
+## Proving two clients agree, when one browser cannot see the other
+
+Live sync (B56) is the first feature here whose subject is a *relationship*, and every probe in
+this repo before it drove one browser. Nothing inside a single page can say whether the other one
+would have noticed, so `scripts/verify-live-sync.mjs` opens two: it seeds one page on a disposable
+instance, points both clients at it, retitles it on A, and asserts on B.
+
+Three habits from this one are worth copying:
+
+- **"It changed" is not the assertion — "it changed without a reload" is.** A manual reload
+  produces the correct DOM and is exactly the bug. `performance.timeOrigin` is stamped when a
+  document is created and re-stamped only by a *new* document, so an unchanged value on B is
+  proof that the DOM showing the new title is the one B loaded.
+- **Count the requests the feature depends on.** `requests("/api/sync")` rising is what separates
+  "polling worked" from "the change arrived and we do not know how". The same log is how a probe
+  proves a fetch went to our own server rather than a third party's CDN.
+- **Drive the second client at the same time as the first writes.** The cheap way to make this
+  feature "work" is to adopt every change, which deletes what the other person is typing. So the
+  probe types continuously into B while A writes, and asserts B's own text survived *and* that B
+  says its copy is behind. That second check is the one that caught a real defect: the notice was
+  a `status`, a keystroke rewrote it 200 ms later, and the sampler never once saw it.
+
+`-Before` for this one deletes `src/app/api/sync` from the disposable copy rather than removing
+the client call, because the surgery has to leave the copy *compiling* — a probe that fails to
+build has proved nothing. Measured: both propagation checks fail at both widths with the old
+symptom printed verbatim, `second client still shows "Sync probe …"`.
+
+Two browser instances also mean two dev-server compiles and ~15 s of waiting per resolution. That
+is the cost of the only assertion that can fail.
 ## Definition of done
 
 - `tsc --noEmit` clean.

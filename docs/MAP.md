@@ -46,10 +46,10 @@ not on PATH here, so the invocations above are the ones that work.
 
 | Path | What it is | Read it when |
 |---|---|---|
-| `src/` | The app. Next.js App Router + React 19. 177 files. | Always. |
-| `tests/` | 53 test files + `schema.ts` helper. `tsx --test`. | Before and after any change. |
+| `src/` | The app. Next.js App Router + React 19. 183 files. | Always. |
+| `tests/` | 57 test files + `schema.ts` helper. `tsx --test`. | Before and after any change. |
 | `docs/` | `STATE.md` (truth), `MAP.md` (this), `DECISIONS.md` (why), `TESTING.md` (how to prove), `ARCHIVE/` (history). | First, in that order. |
-| `scripts/` | 65 real tools, documented in §7. | To run or verify something. |
+| `scripts/` | 67 real tools, documented in §7. | To run or verify something. |
 | `scripts/scratch/` | Gitignored one-off probes, incl. the `cdp-*.mjs` browser probes. Evidence, not tooling — no counts here, because the number changes every session. Import `scripts/browser-session.mjs` for new ones. | Only to read a past measurement. |
 | `data/` | Gitignored. `raspberry.sqlite` is **the owner's live database**, plus `uploads/<sha>` blobs, `logs/`, `archive/`, and **`backups/`** — restore points, written by `pnpm backup`. | Never casually. §8. |
 | `artifacts/` | Gitignored test evidence: screenshots and probe logs. **Never a database** — this folder is documented as disposable, so owner data in it is one `rd /s /q` from gone. Was 14.6 GB of leaked Chrome profiles — see §9. | Rarely. |
@@ -257,6 +257,7 @@ another's width — check specificity and which sheet loads last before blaming 
 | `src/components/workspace.tsx` | Top-level client shell: sidebar, document, state |
 | `src/components/block-editor.tsx` | The editor itself (largest component) |
 | `src/components/use-page-draft.ts` | Draft hook used by the editor |
+| `src/components/use-live-sync.ts` | Mounts the live-sync poller: the browser's clock, `focus`/`visibilitychange`, and `request` (`lib/live-sync.ts` holds the loop) |
 | `src/components/tab-strip.tsx` | Open-page tabs |
 | `src/components/crumbs.tsx` | Breadcrumb trail |
 | `src/components/page-menu.tsx` | Page context menu (also right-click) |
@@ -326,6 +327,10 @@ drag maths), `sidebar-menu.ts`, `menu-place.ts` (menu positioning), `peek-place.
 preview positioning), `palette.ts`, `theme.ts`, `settings.ts`, `settings-nav.ts`,
 `clipboard-image.ts`.
 
+Live sync (§"Live sync" in `STATE.md`): `live-sync.ts` (the polling loop, injected clock and
+timer so it is testable), `sync-stamp.ts` (a digest → *what kind of thing changed*),
+`database-changes.ts` (the "some table moved" signal — the twin of `page-changes.ts`).
+
 `src/lib/database/`: `properties.ts`, `rows.ts`, `types.ts`, `calendar.ts`, `property-types/*`.
 `calendar.ts` is the date picker's arithmetic — the fixed six-week grid, the loose time parser,
 the stepper, `orderBounds` and `dayDiff` — and it is the only place that turns a day into a
@@ -373,10 +378,10 @@ disagreeing about where the same place is.
 
 | Group | Files | Copy this one |
 |---|---|---|
-| Pages and documents | `pages`, `blocks`, `move`, `purge`, `positions`, `page-changes`, `drafts`, `crumbs`, `tabs` | `tests/pages.test.ts` |
-| Service + SQLite integration | `service`, `databases`, `database-columns`, `database-properties`, `database-writes`, `migrations`, `files`, `storage`, `access` | `tests/database-writes.test.ts` |
+| Pages and documents | `pages`, `blocks`, `move`, `purge`, `positions`, `page-changes`, `drafts`, `draft-stale`, `crumbs`, `tabs` | `tests/pages.test.ts` |
+| Service + SQLite integration | `service`, `databases`, `database-columns`, `database-properties`, `database-writes`, `migrations`, `files`, `storage`, `access`, `sync-digest` | `tests/database-writes.test.ts` |
 | Auth | `auth-login`, `session-store` | `tests/auth-login.test.ts` |
-| Pure helpers | `sidebar-drag`, `sidebar-menu`, `menu-place`, `peek-place`, `palette`, `settings-nav`, `clipboard-image`, `client`, `geo-mercator` | `tests/sidebar-drag.test.ts` |
+| Pure helpers | `sidebar-drag`, `sidebar-menu`, `menu-place`, `peek-place`, `palette`, `settings-nav`, `clipboard-image`, `client`, `geo-mercator`, `sync-stamp`, `live-sync` | `tests/sidebar-drag.test.ts` |
 | Browser/UI primitives | `frame-anchor`, `media-blocks`, `database-checkbox` | `tests/frame-anchor.test.ts` |
 | Database columns | `database-place`, `database-place-tiles`, `database-place-ranking`, `database-url`, `database-row-open`, `database-dates`, `database-options`, `database-status-groups` | `tests/database-place.test.ts` |
 | MCP | `mcp`, `stdio` | `tests/mcp.test.ts` |
@@ -456,6 +461,8 @@ and use `scripts/browser-session.mjs` so the browser profile cleans itself up.
 | `scripts/verify-db-formula.mjs` | Proves the formula column and its editor with a real pointer on a **disposable** instance. The language itself is `tests/database-formula.test.ts`'s job; this is the app: the column **computes** (`80`, `Total 80`, `No`, `14`, `Empty` — read off the cells, so the server's read path is under test), a formula cell is a **`button` with no field** that announces a dialog, and the panel opens **on the stored expression** with the painted layer's text **exactly equal** to the field's (the only assertion that can catch the two layers drifting apart) and its tokens wearing the property/number/operator colours. The browser lists **Properties, Built-ins, General, Text, Number, Date, List** in that order, names the columns, and does **not** offer the formula itself (a reference would always be a loop). Typing `dateB` narrows it to one name and `Enter` writes `dateBetween()` with the caret **inside the brackets** and the arity error underneath; `prop("Du` narrows it to columns and inserts a complete `prop("Due")` that evaluates to a date. The preview follows the expression (`80`) **and the page** (`14` on `Beta`), debug mode lists every node with its type and puts the answer at the top, closing commits `prop("Price") + 5` **once** and the cell re-reads `45` — including `Label`, which reads `Total` — while `Beta` reads `12` and `Gamma` stays `Empty`. The header's `Edit formula` row opens the same editor on the same expression, and a direct `PATCH` of a value into the column is **refused** (`derived` means never written). 43 assertions, 1400/390 |
 | `scripts/run-formula-probe.ps1` | Starts a disposable copy on :3111, runs the formula probe at 1400×900 and 390×844 **with a fresh seed per resolution** (the probe rewrites the formula, so a shared database would make the second width start from the first one's edit), stops it and deletes the copy. No fixture server: every request is to `/api/databases`, which is ours. **`-Before` rebuilds the copy as it was before this turn** — `applyFormulas` taken off the read path and the formula branch taken out of `cell-editor.tsx` — and fails the run if the probe passes there. It fails **the first nine checks by name** at both widths and prints the old bug verbatim: `<input class="db-cell-input" aria-label="Total">` inside the formula cell and an empty value. It refuses to start the app if either rewrite did not apply, because a `-Before` that silently matched nothing reports the fixed tree's score as a failure of the fix |
 | `scripts/run-tags-probe.ps1` | Starts a disposable copy of the app on :3100 from `artifacts/qa-run/`, runs `verify-db-tags.mjs` at 1400×900 and 390×844 **with a fresh seed per resolution** (sharing one seed made the second pass read the first pass's tags), stops it and deletes the copy |
+| `scripts/verify-live-sync.mjs` | Proves live sync with **two browsers** on one disposable instance: client A retitles the page, client B shows it without reloading, and `performance.timeOrigin` on B is **unchanged** — "the title changed" is also true after a manual reload, and the manual reload is the bug. It then types continuously into B while A writes and asserts B's own text survives and that B says its copy is behind (`is-stale`). Every other probe drives one browser; this feature is a relationship between two, so one page cannot fail it |
+| `scripts/run-sync-probe.ps1` | Starts a disposable copy on **:3112** (3103–3111 are taken by the database probes, and two runners sharing a port is a probe talking to another feature's server), runs the live-sync probe at 1400×900 and 390×844, stops it and deletes the copy. **`-Before` deletes `/api/sync` from the copy** and fails the run if the probe passes there. Measured: it fails **both** propagation checks at both widths and prints the old symptom verbatim — `second client still shows "Sync probe …"`. The endpoint is deleted rather than a client call, because the surgery has to leave the copy *compiling* |
 | `scripts/verify-session.ps1` | Session/auth verification |
 | `scripts/install-service.ps1` | Installs `deploy/raspberry.service` |
 | `scripts/uninstall-service.ps1` | Removes it |

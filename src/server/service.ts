@@ -2,6 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { z } from "zod";
 import { createPageSchema, patchPageSchema, movePageSchema, documentSchema, emptyDocument, createPageLink, pageReferences, plainText, wordCount, type PatchPageInput, type Page, type PageSummary, type Revision } from "../lib/document";
 import { type Database, type Sql, LOCAL_USER_ID, LOCAL_WORKSPACE_ID } from "./database";
+import { stamp } from "./sync";
 
 export type Actor = { userId: string; workspaceId: string; clientId: string };
 export const localActor = (clientId = "browser"): Actor => ({ userId: LOCAL_USER_ID, workspaceId: LOCAL_WORKSPACE_ID, clientId });
@@ -245,6 +246,29 @@ export class RaspberryService {
       const order = options.trash ? "created_at,id" : "position,created_at,id";
       const rows = await sql.query(`SELECT * FROM pages WHERE ${where.join(" AND ")} ORDER BY ${order} LIMIT $${values.length - 1} OFFSET $${values.length}`, values);
       return rows.map(summary);
+    });
+  }
+  /**
+   * One request that answers "has anything changed, and what do my open tabs look
+   * like now" for the live-sync poller (B56).
+   *
+   * `watched` is deliberately not filtered to live pages: a tab whose page was
+   * trashed on another device has to be told, and `deletedAt` is how. It is also
+   * read in the same transaction as the digest, so the two cannot disagree — a
+   * digest from before a write and summaries from after it would make the poller
+   * record a baseline that already hides the change it just fetched.
+   *
+   * Placeholders are numbered from `$2` with no holes because the SQLite adapter
+   * rewrites them positionally (see the note in `list`).
+   */
+  sync(actor: Actor, ids: string[]) {
+    return this.database.transaction(async (sql) => {
+      await access(sql, actor);
+      const slots = ids.map((_, index) => `$${index + 2}`).join(",");
+      const watched = ids.length
+        ? (await sql.query(`SELECT * FROM pages WHERE workspace_id=$1 AND id IN (${slots})`, [actor.workspaceId, ...ids])).map(summary)
+        : [];
+      return { stamp: await stamp(sql, actor.workspaceId), pages: watched };
     });
   }
   get(actor: Actor, id: string) { return this.database.transaction(async (sql) => { await access(sql, actor); return page(await find(sql, actor, id)); }); }

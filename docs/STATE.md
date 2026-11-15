@@ -17,11 +17,11 @@ keeps it from rotting the way its predecessors did.
 
 <!-- SNAPSHOT:BEGIN — checked by tests/docs-freshness.test.ts -->
 
-- **Tests:** 660 passing, 0 failing, across 53 test files.
+- **Tests:** 694 passing, 0 failing, across 57 test files.
 - **Typecheck:** `tsc --noEmit` clean.
-- **Committed through:** `efa3e18` — fix(auth): the code email warns about the door that was actually tried.
+- **Committed through:** `bca9d15` — docs: snapshot at the commit above.
 - **Schema:** migrations 1–8.
-- **Working tree:** clean.
+- **Working tree:** dirty (uncommitted work in progress).
 <!-- SNAPSHOT:END -->
 
 Run it yourself, it takes four seconds:
@@ -1317,6 +1317,106 @@ turn's contract is a language that is complete for what it does. And **there is 
 setting on a formula column** yet: `format()` and `formatNumber()` inside the expression cover it,
 and a column-level format is the same decision B43's number display is already parked on.
 
+## Live sync: another device's edit, in about a second (B56)
+
+**The owner's report:** *"On notion if I make a change on one device it will be seen on another
+in a matter of seconds ... on raspberry i need to manually refresh the page in order to see the
+change. We need to make it fit the same level of standard."*
+
+They were describing a gap, not a latency problem: `src/` contained **no `EventSource`, no
+`WebSocket`, no `setInterval`, no `BroadcastChannel`, no `router.refresh`, no `visibilitychange`**
+— verified by grep, not assumed. Every screen fetched once and never again, so the true latency
+was "until you reload", which is another way of saying the second device was never told anything.
+
+### What it is now
+
+`GET /api/sync?watch=<ids>` answers one question — *has this workspace changed, and what do my
+open tabs look like now* — and the browser asks it once a second while the tab is visible.
+
+- **`src/server/sync.ts`** — the digest. Three aggregates: page count / live count / sum of
+  `pages.revision`, database count / sum of `databases.revision`, and the workspace's count of
+  rows in `mutations` (writes that were applied rather than replayed).
+- **`src/lib/sync-stamp.ts`** — turns a digest into *what kind of thing changed*: the page set
+  (re-read the list), a page's revisions (reconcile open tabs), or a database (re-read open
+  blocks). Pure, so it is unit-tested.
+- **`src/lib/live-sync.ts`** — the loop, with clock, timer and visibility injected, so its
+  behaviour between ticks is testable instead of waited for.
+- **`src/components/use-live-sync.ts`** — mounts it; `focus` and `visibilitychange` both poke it,
+  because a tab can become visible without being focused and focused without being visible.
+
+### Why polling, and not a socket
+
+Every process in the hosted shape is a serverless function, and a function cannot hold a
+connection open: an SSE endpoint holds one instance per open tab, and a `LISTEN`/`NOTIFY` feed
+needs an unpooled PostgreSQL connection per tab as well. The decisive argument is not cost though
+— it is that **polling runs identically in `file::memory:`**, so the suite and
+`scripts/verify-live-sync.mjs` exercise the code the deployment runs, instead of a branch that
+only exists in production.
+
+### Why the digest is aggregates and not a cursor — three designs rejected
+
+1. **`WHERE updated_at > $cursor`** — `updated_at` is written by *the application*
+   (`new Date().toISOString()`), and a hosted deployment is several lambdas with several clocks.
+   A writer whose clock lags produces a row the reader's cursor has already passed, so the change
+   is never reported. Silently and permanently.
+2. **A `changes` table with an auto-increment id** — sound, but the DDL differs per dialect, and
+   every write path would have to remember to append to it. A path that forgets is a change
+   nobody is ever told about.
+3. **A per-database tick bumped by every write** — impossible: `databases.revision` is the
+   *structural-conflict* token (`databases.ts:169`), so a checkbox tick bumping it would answer
+   every structural edit with "This database changed. Reload before editing its structure."
+
+So the comparison is **equality of aggregates, never ordering** — no clock is involved, and no
+write can be "before" the cursor.
+
+**The defect this design uncovered, and the test that now holds it:** `patchRow`
+(`databases.ts:601`) writes cells with `UPDATE databases SET updated_at=$1` and **no
+`revision=revision+1`**, deliberately — so a digest built on revisions alone would have made
+every *checkbox, number and date* invisible across devices while page titles worked, which is the
+"it works in every column except this one" failure a suite full of revision assertions cannot
+see. The receipt count is the only evidence that path leaves, and
+`tests/sync-digest.test.ts` asserts exactly that, including that the two revision sums do **not**
+move.
+
+### Adopting, without deleting what somebody is typing
+
+`adoptedRemote` in `draft-sync.ts` is the pure decision, beside the existing `adoptedAppend`:
+a newer server revision is adopted **only** when the tab has no unsaved work. A dirty tab is
+refused and marked instead.
+
+That marking was **wrong on the first attempt and the probe caught it**. It was a `status`, and
+the person's next keystroke set the status back to `pending` about 200 ms later — the notice
+existed between two keystrokes and nobody would ever read it, and a user typing continuously
+would have met only a `409`. It is now `DraftRecord.behind`, a flag that outranks the transient
+statuses and is cleared only by an adoption or a successful save.
+`tests/draft-stale.test.ts` pins it; `scripts/verify-live-sync.mjs` observes it in a real browser.
+
+### What is proved
+
+| Gate | Result |
+|---|---|
+| `tsc --noEmit` | 0 errors |
+| Suite | **690 passing**, 0 failing, 56 files (`draft-stale`, `live-sync`, `sync-stamp`, `sync-digest` are new) |
+| `check-docs --full` | OK |
+| Two-client browser probe, 1400×900 and 390×844 | **5/5 at both** — A's retitle arrives on B with `performance.timeOrigin` **unchanged** (so not a reload), B is polling (`/api/sync` count rises), B keeps the text it was typing, and B shows `is-stale` |
+| The same probe with `/api/sync` deleted (`-Before`) | **fails the two propagation checks at both widths**, printing `second client still shows "Sync probe …"` |
+
+### What is not
+
+- **Concurrent edits of the same page still resolve by revision rejection (`409`).** This makes
+  another device's change *visible*; it does not merge two people's paragraphs. That is a CRDT,
+  and it is not this turn.
+- **The digest is workspace-wide, so it cannot say *which* page moved.** It says "something did",
+  and the caller re-reads. The upgrade path, if it ever matters: add a sequence column to
+  `mutations` and return the changed ids.
+- One open database block may re-read when an unrelated write lands (any receipted write counts),
+  which is cheap and always correct.
+- The list is re-read for a content-only change at most once every 5 seconds, and not at all
+  while a save is in flight — so a title renamed on another device is on screen within that
+  window rather than instantly.
+
+
+
 ## What is next — in this order
 
 The database programme is numbered B38–B55. B38, B39, all of B40a–B40n and the number half of
@@ -1433,10 +1533,14 @@ Two notes worth keeping, because the reasoning has changed since they were parke
 
 ## Known limitations, stated plainly
 
-- One user, one workspace. The local copy is loopback only; a hosted copy exists at
-  `https://raspberry-blush.vercel.app` but currently serves nobody, because sign-in is not
-  configured (see "Hosting" above).
-- No live collaboration. Concurrent edits resolve by revision rejection (`409`).
+- One user, one workspace, in the sense the top of this file means: the **hosted** copy at
+  `https://raspberry-blush.vercel.app` has **two** allowlisted people, each with their own
+  workspace, who sign in with a six-digit code emailed to them. That is not the multiuser
+  retrofit — no sharing, no presence, no roles beyond `owner`.
+- No live collaboration *of the same page*: two people editing one document still resolve by
+  revision rejection (`409`). Another device's change is now **visible within about a second**
+  (B56) — that is liveness, not merging, and the sentence "concurrent edits resolve by 409" is
+  still true.
 - Write bodies capped at 1 MB; 2,000 blocks; ten nested block levels.
 - The JSON validator only accepts block types the editor enables, so an unknown block
   fails loudly rather than being silently dropped. Intentional — but hand-edited

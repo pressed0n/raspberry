@@ -11,7 +11,7 @@ import { toMarkdown, wordCount, type Page, type PageIcon, type PageSummary, type
 import { applyTheme, DEFAULT_THEME, nextTheme, readTheme, storeTheme, type Theme } from "@/lib/theme";
 import { applyStoredPalette } from "@/lib/settings";
 import { usePageDraft } from "./use-page-draft";
-import { clearRecovery as clearRecoveryRecord, adoptChildPage, adoptMove, favoriteRecord, flushRecord, getRecord, releaseRecord, renameRecord, settleRecord, subscribe } from "@/lib/draft-registry";
+import { clearRecovery as clearRecoveryRecord, adoptChildPage, adoptMove, adoptRemote, anyRecordSaving, favoriteRecord, flushRecord, getRecord, markStale, recordIsDirty, releaseRecord, renameRecord, settleRecord, subscribe } from "@/lib/draft-registry";
 import { blockEnd, dropTarget, isNoop, keyboardMove, resolveDrop, subtreeIds, type DragRow, type DropSite, type DropTarget } from "@/lib/sidebar-drag";
 import DragLayer, { type GhostView, type LineView } from "./drag-layer";
 import SettingsDialog from "./settings/dialog";
@@ -30,6 +30,8 @@ import { copyBlocks } from "@/lib/page-copy";
 import { copyTitle, type SidebarVerbId } from "@/lib/sidebar-menu";
 import { atPointer, atRect, type MenuAnchor } from "@/lib/menu-place";
 import { livePagesChanged } from "@/lib/page-changes";
+import { databasesChanged } from "@/lib/database-changes";
+import { useLiveSync } from "./use-live-sync";
 
 /**
  * Signs out and clears this device's drafts.
@@ -152,6 +154,43 @@ export default function Workspace() {
     setLoaded((current) => ({ ...current, [id]: result.page }));
     return result.page;
   }, []);
+
+  /* ---------- live sync (B56) ----------
+     Two devices, one workspace. The poller asks the server once a second whether
+     the workspace's digest moved; when it has it hands back the open tabs'
+     summaries, and this reconciles them.
+
+     The order in the loop is the whole of "never lose a keystroke":
+
+       - a revision this tab already holds is not news. Most entries are this,
+         because the digest is workspace-wide and reports every tab whenever
+         anything anywhere moves.
+       - a *dirty* record is warned about and never fetched. Fetching it and then
+         declining to use it would be a request whose only possible outcome is the
+         warning, and adopting it would delete what the person is typing.
+       - a page trashed or purged elsewhere is skipped: `refresh` closes its tab,
+         and remounting an editor that is about to disappear is worse than the
+         half-second it would be correct for.
+
+     `refresh` is not called here. The poller decides that separately, because the
+     list matters when the page *set* changed and not when someone edited text. */
+  const reconcile = useCallback(async (watched: PageSummary[]) => {
+    for (const entry of watched) {
+      const record = getRecord(entry.id);
+      if (!record || entry.deletedAt) continue;
+      if (entry.revision <= record.sync.persisted.revision) continue;
+      if (recordIsDirty(entry.id)) { markStale(entry.id, "This page was changed on another device. Your unsaved edits are kept."); continue; }
+      adoptRemote(entry.id, await loadPage(entry.id));
+    }
+  }, [loadPage]);
+
+  useLiveSync({
+    watch: () => tabs.ids,
+    busy: anyRecordSaving,
+    onPages: (watched) => { void reconcile(watched); },
+    onCollection: () => refresh(),
+    onDatabases: databasesChanged,
+  });
 
   /**
    * Commits a drop (B28).
@@ -1127,7 +1166,7 @@ function PageEditor({ page, pages, theme, strip, onSaved, onTitleDraft, onMenu, 
     catch (cause) { onError((cause as Error).message); } finally { setActionBusy(false); }
   };
 
-  const saveLabel = status === "saved" ? "Saved" : status === "saving" ? "Saving…" : status === "pending" ? "Unsaved" : status === "conflict" ? "Conflict" : "Not saved";
+  const saveLabel = status === "saved" ? "Saved" : status === "saving" ? "Saving…" : status === "pending" ? "Unsaved" : status === "conflict" ? "Conflict" : status === "stale" ? "Changed elsewhere" : "Not saved";
   const words = wordCount(draft.content);
 
   return <>
@@ -1190,7 +1229,7 @@ function PageEditor({ page, pages, theme, strip, onSaved, onTitleDraft, onMenu, 
           <span>Edited {new Date(page.updatedAt).toLocaleDateString(undefined, { month: "short", day: "numeric" })}</span>
         </div>
 
-        {(status === "error" || status === "conflict") && <div className="doc-alert" role="alert">
+        {(status === "error" || status === "conflict" || status === "stale") && <div className="doc-alert" role="alert">
           <p>{message}</p>
           <div>
             <button className="btn-ghost" onClick={exportPage}><ArrowDownToLine size={13} />Download draft</button>

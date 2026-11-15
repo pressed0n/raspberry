@@ -632,6 +632,9 @@
 
 .save-state.is-conflict { color: var(--danger); }
 .save-state.is-pending { color: var(--text-2); }
+/* B56. Not `--danger`: nothing has failed and nothing is lost. This says the copy on
+   screen is behind one another device saved — attention without alarm. */
+.save-state.is-stale { color: var(--accent); }
 
 /* Toasts for workspace-level failures (load, trash, restore). */
 .banner {

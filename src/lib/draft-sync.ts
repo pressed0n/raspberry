@@ -77,8 +77,34 @@ export function adoptedAppend(state: SyncState, fresh: Page): SyncState | null {
   };
 }
 
-export type SaveOutcome = "saved" | "error" | "conflict" | "stuck";
+/**
+ * Adopts a page the server changed underneath a tab that is not being edited (B56).
+ *
+ * `adoptedAppend` answers "the server appended to my document"; this answers "the
+ * server has a whole new document". They are different questions and only one of
+ * them may ever run: an append keeps the local draft, and adopting a whole
+ * document replaces it, so this returns null whenever `hasUnsavedChanges` — the
+ * keystrokes on this device are not the server's to discard.
+ *
+ * Returning null is not a failure the caller swallows. A draft that is behind the
+ * server cannot be saved (`expectedRevision` is stale), so the caller marks the
+ * record stale and says so *before* the user hits a 409 they did not cause.
+ *
+ * An equal or older revision is also null: the poller re-reports the same page for
+ * as long as anything in the workspace moves, and re-adopting an identical
+ * document would remount the editor under the reader for no reason.
+ */
+export function adoptedRemote(state: SyncState, fresh: Page): SyncState | null {
+  if (fresh.revision <= state.persisted.revision) return null;
+  if (hasUnsavedChanges(state)) return null;
+  /* A fresh `SyncState`, not a patch of the old one: `latest` must become the
+     server's copy, and both counters start level so the record is clean. Anything
+     carried over here would be a local edit surviving an adoption it should not
+     have survived. */
+  return initialSync(fresh);
+}
 
+export type SaveOutcome = "saved" | "error" | "conflict" | "stuck";
 /**
  * Reads and writes the live state. It is an accessor pair rather than a value
  * because the user keeps typing while a request is in flight: the loop has to

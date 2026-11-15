@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { createPageLink, emptyDocument, type Page } from "../src/lib/document";
-import { MAX_SAVE_ROUNDS, adoptedAppend, edited, hasUnsavedChanges, initialSync, runSaveLoop, type Draft, type Payload, type SyncState } from "../src/lib/draft-sync";
+import { MAX_SAVE_ROUNDS, adoptedAppend, adoptedRemote, edited, hasUnsavedChanges, initialSync, runSaveLoop, type Draft, type Payload, type SyncState } from "../src/lib/draft-sync";
 
 const pageOf = (overrides: Partial<Page> = {}): Page => ({ id: randomUUID(), parentId: null, title: "Untitled", icon: "file", favorite: false, revision: 1, position: 0, createdAt: new Date(0).toISOString(), updatedAt: new Date(0).toISOString(), deletedAt: null, wordCount: 0, content: emptyDocument(), schemaVersion: 1, ...overrides });
 const echo = (initial: Page, payload: Payload, overrides: Partial<Page> = {}): Page => ({ ...initial, title: payload.title, icon: payload.icon, content: payload.content, favorite: payload.favorite, revision: payload.expectedRevision + 1, ...overrides });
@@ -170,4 +170,51 @@ test("a save answered after an adoption does not roll the base revision back", a
   assert.deepEqual(expected, [1, 3], "the stale answer is dropped and the save is rebuilt on the adopted revision");
   assert.equal(local.read().persisted.revision, 4);
   assert.equal(local.read().latest.content.length, 2, "and the child is still on the page");
+});
+
+/* ---------------------------------------------------------------------------
+   B56 — a page changed on another device
+   --------------------------------------------------------------------------- */
+
+test("a clean tab adopts the copy another device saved, without writing it back", async () => {
+  const page = pageOf(), local = host(page);
+  const remote: Page = {
+    ...page, revision: 4, title: "Renamed elsewhere",
+    content: [{ ...page.content[0], id: randomUUID(), content: [{ type: "text", text: "theirs", styles: {} }] }] as Page["content"],
+  };
+  const adopted = adoptedRemote(local.read(), remote);
+  assert.ok(adopted);
+  local.io.set(adopted);
+  assert.equal(local.read().persisted.revision, 4, "the base revision follows the server");
+  assert.equal(local.read().latest.title, "Renamed elsewhere", "the screen shows what the server holds");
+  assert.equal(local.read().latest.content[0]?.id, remote.content[0]?.id);
+  assert.equal(hasUnsavedChanges(local.read()), false, "an adoption is not an edit");
+  let sends = 0;
+  const result = await runSaveLoop(local.io, async (payload) => { sends += 1; return echo(page, payload); });
+  assert.equal(result.outcome, "saved");
+  assert.equal(sends, 0, "so the adopted document is not sent straight back");
+});
+
+test("a tab being typed in refuses the adoption and keeps every keystroke", () => {
+  const page = pageOf(), local = host(page);
+  local.edit({ title: "half a sentence" });
+  assert.equal(adoptedRemote(local.read(), { ...page, revision: 9, title: "theirs" }), null);
+  assert.equal(local.read().latest.title, "half a sentence", "the local edit is not discarded");
+  assert.equal(hasUnsavedChanges(local.read()), true);
+});
+
+test("a save in flight counts as unsaved work, so a reply cannot be adopted over it", () => {
+  const page = pageOf(), local = host(page);
+  const typed = edited(local.read(), { title: "typing" });
+  /* The state `runSaveLoop` parks between sending and confirming: the counters agree
+     but the payload is still outstanding, which is why `hasUnsavedChanges` tests
+     `inFlight` as well as the sequence numbers. */
+  local.io.set({ ...typed, inFlight: { ...typed.latest, expectedRevision: page.revision, mutationId: randomUUID() } });
+  assert.equal(adoptedRemote(local.read(), { ...page, revision: 2 }), null);
+});
+
+test("an equal or older revision is not an adoption", () => {
+  const page = pageOf({ revision: 5 }), local = host(page);
+  assert.equal(adoptedRemote(local.read(), { ...page, revision: 5 }), null, "the poller re-reports every open tab on every change");
+  assert.equal(adoptedRemote(local.read(), { ...page, revision: 4 }), null, "an answer that raced a newer one");
 });

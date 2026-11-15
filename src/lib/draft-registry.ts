@@ -23,9 +23,9 @@
    --------------------------------------------------------------------------- */
 import { request } from "./api-client";
 import { patchPageSchema, type Page } from "./document";
-import { adoptedAppend, edited, hasUnsavedChanges, initialSync, recovered, runSaveLoop, selectDraft, type Draft, type SyncState } from "./draft-sync";
+import { adoptedAppend, adoptedRemote, edited, hasUnsavedChanges, initialSync, recovered, runSaveLoop, selectDraft, type Draft, type SyncState } from "./draft-sync";
 
-export type DraftStatus = "saved" | "pending" | "saving" | "error" | "conflict";
+export type DraftStatus = "saved" | "pending" | "saving" | "error" | "conflict" | "stale";
 
 export type DraftSnapshot = {
   draft: Draft;
@@ -46,6 +46,12 @@ export type DraftRecord = {
   scrollTop: number;
   snapshot: DraftSnapshot;
   blocked: boolean;
+  /* Set when the server holds a revision this tab never saw (B56). It is a flag
+     rather than a `status` because a status is overwritten by the next keystroke:
+     the notice was being cleared by `updateRecord` about 200 ms after it appeared,
+     which is before anyone could read it. Only a successful save or an adoption
+     clears this, because those are the only events that make it untrue. */
+  behind: boolean;
   running: Promise<boolean> | null;
   timer: ReturnType<typeof setTimeout> | null;
   listeners: Set<() => void>;
@@ -61,7 +67,12 @@ const storageKey = (id: string) => `raspberry:draft:${id}`;
 function snapshotOf(record: DraftRecord): DraftSnapshot {
   return {
     draft: record.sync.latest,
-    status: record.status,
+    /* `behind` outranks the transient statuses. "Unsaved" is true and unremarkable;
+       "Changed elsewhere" is the one that has to be read, and an edit replaces
+       `pending` with itself a fifth of a second later — which is how the notice used
+       to disappear before it could be seen. `conflict` and `error` still win, because
+       they are the states with something to do about them. */
+    status: record.behind && record.status !== "conflict" && record.status !== "error" ? "stale" : record.status,
     message: record.message,
     contentVersion: record.contentVersion,
     scrollTop: record.scrollTop,
@@ -156,6 +167,7 @@ export function acquireRecord(initial: Page): DraftRecord {
     scrollTop: 0,
     snapshot: null as unknown as DraftSnapshot, // replaced by publish() below
     blocked: false,
+    behind: false,
     running: null,
     timer: null,
     listeners: new Set(),
@@ -248,6 +260,10 @@ export function flushRecord(record: DraftRecord): Promise<boolean> {
 
     if (outcome === "saved") {
       clearRecovery(record.id);
+      /* The server now holds this tab's copy, so it is no longer behind whatever
+         another device saved. Cleared here rather than in `snapshotOf` because this is
+         the only event that makes the claim false. */
+      record.behind = false;
       patch(record, { status: "saved", message: "" });
       announce();
       return true;
@@ -407,5 +423,77 @@ export function adoptChildPage(id: string, fresh: Page): void {
   // The mounted editor was handed its blocks once and never reads the record again, so
   // the child only appears if the editor remounts on the content that now holds it.
   patch(record, { contentVersion: record.contentVersion + 1 });
+}
+
+/**
+ * True when this page's tab holds edits the server has not confirmed (B56).
+ *
+ * The poller asks before it fetches: re-reading a page whose local copy is going
+ * to be refused anyway is a request that can only waste, and the answer decides
+ * between adopting and warning.
+ */
+export function recordIsDirty(id: string): boolean {
+  const record = records.get(id);
+  return record ? hasUnsavedChanges(record.sync) : false;
+}
+
+/**
+ * True while any open tab has a save in flight (B56).
+ *
+ * The poller uses this to hold back the *list* re-read: a list refresh triggered
+ * by this client's own save is work that teaches it nothing, and typing produces
+ * one of those every debounce interval.
+ */
+export function anyRecordSaving(): boolean {
+  for (const record of records.values()) if (record.status === "saving") return true;
+  return false;
+}
+
+/**
+ * Says, without changing anything, that this page moved elsewhere (B56).
+ *
+ * Only the status is touched — no revision, no draft, not `blocked`. `blocked`
+ * is a conflict the user has to resolve, and this is not one yet: it is the
+ * warning that arrives *before* their next save turns into that conflict. The
+ * next local edit sets `pending` and the next successful save sets `saved`, so
+ * the warning clears itself when it stops being true.
+ */
+export function markStale(id: string, message: string): void {
+  const record = records.get(id);
+  if (!record || record.blocked) return;
+  if (record.behind && record.message === message) return;
+  record.behind = true;
+  patch(record, { message });
+}
+
+/**
+ * Adopts a page changed on another device into an open, unedited tab (B56).
+ *
+ * Returns false when the record cannot take it, and the two reasons are different
+ * in a way the caller must respect:
+ *
+ *   - the draft has unsaved edits, so adopting would delete keystrokes. The
+ *     caller warns (`markStale`) instead of forcing it.
+ *   - the server's copy is not newer, which is the common case: the poller
+ *     reports every page each time anything in the workspace moves, so most of
+ *     these calls are the same revision this tab already holds.
+ *
+ * `contentVersion` is bumped because the mounted editor was handed its blocks
+ * once and never reads the record again — the same reason `adoptChildPage` bumps
+ * it. Scroll position survives, because it lives on the record rather than in the
+ * component.
+ */
+export function adoptRemote(id: string, fresh: Page): boolean {
+  const record = records.get(id);
+  if (!record || record.blocked) return false;
+  const next = adoptedRemote(record.sync, fresh);
+  if (!next) return false;
+  record.sync = next;
+  record.behind = false;
+  /* The stored draft is the *old* document. Leaving it would make the next reload
+     recover an edit nobody made and offer it back. */
+  clearRecovery(record.id);
+  patch(record, { status: "saved", message: "", contentVersion: record.contentVersion + 1 });
+  return true;
 }
 

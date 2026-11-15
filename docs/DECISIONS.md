@@ -1,4 +1,4 @@
-# Why the code is like this
+﻿# Why the code is like this
 
 `AGENTS.md` says what to do. `docs/MAP.md` says where things are. This file says **why**,
 so that the reasoning survives without occupying the file that is injected every session.
@@ -1517,3 +1517,69 @@ provider's machine name. There are three answers and only one is acceptable.
 (`tests/auth-smtp-transport.test.ts`), rather than something only a failed sign-in reveals.
 The override is *absent* from the options when unset rather than `undefined`, because
 nodemailer merges `tls` over its own defaults and those are different values.
+
+## Liveness is a question asked once a second, not a socket (B56)
+
+The owner asked for Notion's behaviour: *"if I make a change on one device it will be seen on
+another in a matter of seconds"*. Notion's answer is a socket. Ours is `GET /api/sync`, asked once
+a second, and the reasons are worth keeping because two of them are not about cost.
+
+- **A serverless function cannot hold a connection.** SSE would pin one instance per open tab for
+  as long as the tab lives; `LISTEN`/`NOTIFY` would need an unpooled PostgreSQL connection per tab.
+  Both are possible and neither is free at a scale this app will never reach.
+- **A second connection is a second dialect.** SQLite is the suite's database; Postgres is the
+  hosted one. A socket that exists only in production is code no test can run, and this repo's
+  evidence rule makes that unacceptable. Polling over HTTP works identically in `file::memory:`,
+  so `scripts/verify-live-sync.mjs` proves the deployment's path by proving the test one.
+
+The price is honest and stated: ~86k invocations a day per always-open tab. With the poll paused
+while hidden and the list re-read floored at 5 s, that is not the number anyone should budget for.
+
+### Never order rows by a timestamp the application wrote
+
+Three designs were on the table. The first was `WHERE updated_at > $cursor`, and it is the one
+worth remembering as a trap: `updated_at` comes from `new Date().toISOString()` in the service,
+and a hosted deployment is several lambda instances with several clocks. A writer whose clock lags
+by 40 ms produces a row the reader's cursor has already passed — so the change is never reported,
+once, forever, and no test that writes and reads on one process can see it.
+
+The digest therefore compares **equality of aggregates**, never ordering: page count, live count
+and `SUM(pages.revision)`; database count and `SUM(databases.revision)`; and the count of applied
+write receipts. Equality has no before. Two of those fields also happen to answer the only
+question the client needs — *is this the page set or just a page* — which is what keeps typing
+from re-reading a 200-page list once a second.
+
+### The cheapest correct digest is the one that reads what writes already left behind
+
+A `changes` table would be exact and would name the entity. It would also be dialect-specific DDL
+plus a rule that every future write path must obey, and the failure mode of forgetting is a change
+nobody is told about — the worst kind, because it is invisible to the person who forgot.
+
+Instead the digest reads three things that *already* move:
+
+- `pages.revision` — create, patch, move, trash and restore all bump it.
+- `pages` row count — drops only on purge and empty-trash, the only writes that remove rows.
+- `mutations` count — the receipt every applied write stores, replayed retries excluded.
+
+The third one is load-bearing and was found by writing the test, not by reading the code:
+**`patchRow` does not bump `databases.revision`**, because that column is the structural-conflict
+token — a checkbox tick moving it would make every structural edit answer "This database changed.
+Reload before editing its structure." So a revision-only digest makes every checkbox, number and
+date invisible across devices while page titles work perfectly.
+`tests/sync-digest.test.ts` asserts the revision sums do **not** move and the receipt count does.
+
+## Adopting a change is not merging, and refusing to adopt is not an error (B56)
+
+`adoptedAppend` already existed for the one case where the server's copy *is* the local copy plus
+a tail. `adoptedRemote` is its sibling for "the server has a whole new document", and it returns
+`null` — adopt nothing — whenever `hasUnsavedChanges`. Deleting keystrokes to show a newer version
+is not a trade; it is data loss with a fresh timestamp.
+
+The part that was wrong first: a tab that is behind was *marked* with a `status`, and a status is
+overwritten by the next keystroke. The notice appeared for about 200 ms. `scripts/verify-live-sync.mjs`
+samples the indicator every 200 ms while a person types and **never saw it** — which is how the
+bug was found, and why `DraftRecord.behind` is a flag that outranks the transient statuses and is
+cleared only by an adoption or a successful save.
+
+The rule underneath: **a warning that only exists between two keystrokes has not been shown to
+anybody.** If the state that raised it is still true, the notice must still be on screen.
