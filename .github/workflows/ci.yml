@@ -61,7 +61,16 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 15
     steps:
+      # Full history, not checkout's default depth-1 clone. `pnpm test` runs
+      # tests/docs-freshness.test.ts, which shells out to scripts/check-docs.mjs; that
+      # verifies the commit docs/STATE.md names is an *ancestor* of HEAD via
+      # `git merge-base --is-ancestor`. A shallow clone has no parent commit to walk to,
+      # so a correct snapshot reads as "history was rewritten" and the run goes red for a
+      # reason unrelated to the code — which is what happened on 2833a7c. The repo is
+      # small; history is the input this job actually needs.
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       # pnpm must exist before setup-node so its store cache can be resolved.
       - name: Install pnpm

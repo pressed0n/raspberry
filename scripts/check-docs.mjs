@@ -419,10 +419,22 @@ if (head && block) {
     // A rewritten or unreachable sha does — which is the case worth failing on.
     const reachable = spawnSync("git", ["merge-base", "--is-ancestor", docHead, "HEAD"], { cwd: root }).status === 0;
     if (!reachable) {
+      /* A shallow clone fails this check for a reason that is not the snapshot's fault:
+         `actions/checkout` clones depth 1 by default, so the parent commit the snapshot
+         names is simply absent and `--is-ancestor` reports "no". Saying "history was
+         rewritten" there is a lie that costs a session an hour, so the two cases are
+         named separately. The fix in CI is `fetch-depth: 0` on the job that runs the
+         suite; the fix locally is `git fetch --unshallow`. */
+      const shallow = git(["rev-parse", "--is-shallow-repository"]) === "true";
       fail(
-        `docs/STATE.md says committed through ${docHead}, which is not an ancestor of HEAD ` +
-          `(${head}). Either history was rewritten or the sha is wrong. ` +
-          `Run: node scripts/check-docs.mjs --fix`
+        shallow
+          ? `docs/STATE.md says committed through ${docHead}, which cannot be shown to be an ` +
+            `ancestor of HEAD (${head}) because this clone is shallow. The snapshot is probably ` +
+            `fine; the history it needs was not fetched. Fix: \`git fetch --unshallow\`, or set ` +
+            `fetch-depth: 0 on the checkout step that runs this suite (.github/workflows/ci.yml).`
+          : `docs/STATE.md says committed through ${docHead}, which is not an ancestor of HEAD ` +
+            `(${head}). Either history was rewritten or the sha is wrong. ` +
+            `Run: node scripts/check-docs.mjs --fix`
       );
     }
   }

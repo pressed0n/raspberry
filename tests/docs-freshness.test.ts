@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, writeFileSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { tmpdir } from "node:os";
 
@@ -115,4 +115,36 @@ test("the checker fails, by name, on every kind of drift it claims to catch", ()
   } finally {
     rmSync(fixture, { recursive: true, force: true });
   }
+});
+
+/* 2833a7c went red in CI with a message that had nothing to do with the code:
+   "docs/STATE.md says committed through f7b7ce2, which is not an ancestor of HEAD".
+
+   The snapshot was correct. `actions/checkout` clones depth 1 by default, so the parent
+   commit the snapshot names was simply not in the clone, and `git merge-base
+   --is-ancestor` answered "no" — which the checker reported as rewritten history.
+
+   Two separate lessons are pinned here. The first is mechanical: the job that runs this
+   suite must fetch history, because the docs check reads it. The second is the one that
+   matters — a guard that fails for the wrong reason is a guard people learn to ignore,
+   so the checker now tells a shallow clone apart from a broken snapshot instead of
+   blaming the docs for the clone's shape. */
+test("the CI job that runs this suite checks out the history the docs check reads", () => {
+  const workflow = readFileSync(join(ROOT, ".github", "workflows", "ci.yml"), "utf8");
+  const start = workflow.indexOf("\n  verify:");
+  const end = workflow.indexOf("\n  build:");
+  assert.ok(start !== -1, "ci.yml has no `verify` job; the suite would never run on a push");
+  assert.ok(end > start, "ci.yml's `verify` job must still sit before `build` so this slice is bounded");
+
+  const job = workflow.slice(start, end);
+  assert.match(job, /actions\/checkout@v\d+/, "the verify job must check the repository out");
+  assert.match(
+    job,
+    /fetch-depth:\s*0/,
+    "The verify job clones depth 1 by default, but tests/docs-freshness.test.ts runs " +
+      "scripts/check-docs.mjs, which asks git whether the commit docs/STATE.md names is an " +
+      "ancestor of HEAD. With no history that question is unanswerable and a correct snapshot " +
+      "reads as rewritten history — the exact false red the run on 2833a7c produced. Add " +
+      "`with: fetch-depth: 0` to the checkout step in the verify job."
+  );
 });
