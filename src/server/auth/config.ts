@@ -40,6 +40,19 @@ export type AuthConfig = {
   smtpPort: number;
   smtpUser: string;
   smtpPass: string;
+  /**
+   * Name to verify the relay's certificate against, when it differs from `smtpHost`.
+   *
+   * Shared hosting routinely serves a mailbox at `mail.example.com` while the
+   * certificate is issued for the provider's own machine name, so the handshake fails
+   * with `Hostname/IP does not match certificate's altnames`. The alternatives are to
+   * disable verification (a downgrade, and then the password is encrypted to anyone) or
+   * to connect to the provider's machine name instead (`mail.example.com` stops being
+   * the thing config points at, which is the name in DNS an operator edits). Setting
+   * SNI to the name the certificate actually carries is the only option that keeps
+   * verification on and keeps the friendly hostname in the environment.
+   */
+  smtpServername: string;
 };
 
 export type Configured<Value> = { ok: true; value: Value } | { ok: false; missing: string[] };
@@ -65,6 +78,7 @@ export function readAuthConfig(): Configured<AuthConfig> {
   const smtpPort = Number(text("RASPBERRY_SMTP_PORT") || "587");
   const smtpUser = text("RASPBERRY_SMTP_USER");
   const smtpPass = text("RASPBERRY_SMTP_PASS");
+  const smtpServername = text("RASPBERRY_SMTP_SERVERNAME");
 
   if (!publicOrigin) missing.push("RASPBERRY_PUBLIC_ORIGIN");
   if (allowedEmails.length === 0) missing.push("RASPBERRY_ALLOWED_EMAILS");
@@ -115,6 +129,7 @@ export function readAuthConfig(): Configured<AuthConfig> {
       smtpPort,
       smtpUser,
       smtpPass,
+      smtpServername,
     },
   };
 }

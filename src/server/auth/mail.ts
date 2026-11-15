@@ -25,6 +25,28 @@ import type { AuthConfig } from "./config";
 export type MailMessage = { to: string; subject: string; text: string };
 export type Mailer = (message: MailMessage) => Promise<void>;
 
+/**
+ * What nodemailer is handed, as a value rather than inline.
+ *
+ * Extracted so the one setting that is easy to get wrong can be asserted in a test:
+ * TLS is verified against `smtpHost`, or against `smtpServername` when the relay's
+ * certificate is issued for a different name than the one in DNS. Shared hosting does
+ * exactly that, and the only alternatives to the override are turning verification off
+ * (encrypting the password to an unverified peer) or pointing `smtpHost` at the
+ * provider's machine name. See `AuthConfig.smtpServername`.
+ */
+export function smtpTransportOptions(config: AuthConfig) {
+  return {
+    host: config.smtpHost,
+    port: config.smtpPort,
+    // 465 is implicit TLS; 587 starts plaintext and upgrades. Anything else is only
+    // sane behind a local relay, which a hosted deployment is not.
+    secure: config.smtpPort === 465,
+    auth: { user: config.smtpUser, pass: config.smtpPass },
+    ...(config.smtpServername ? { tls: { servername: config.smtpServername } } : {}),
+  };
+}
+
 const addressShape = /^[^\s@,;:<>]+@[^\s@,;:<>]+\.[^\s@,;:<>]+$/;
 
 export function assertAddress(address: string): string {
@@ -49,14 +71,7 @@ export function createMailer(config: AuthConfig, fetchImpl: typeof fetch = fetch
     let transport: ReturnType<typeof nodemailer.createTransport> | undefined;
     return async (message) => {
       assertAddress(message.to);
-      transport ??= nodemailer.createTransport({
-        host: config.smtpHost,
-        port: config.smtpPort,
-        // 465 is implicit TLS; 587 starts plaintext and upgrades. Anything else is only
-        // sane behind a local relay, which a hosted deployment is not.
-        secure: config.smtpPort === 465,
-        auth: { user: config.smtpUser, pass: config.smtpPass },
-      });
+      transport ??= nodemailer.createTransport(smtpTransportOptions(config));
       try {
         await transport.sendMail({ from: config.mailFrom, to: message.to, subject: message.subject, text: message.text });
       } catch (error) {
