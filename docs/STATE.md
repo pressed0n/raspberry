@@ -19,9 +19,9 @@ keeps it from rotting the way its predecessors did.
 
 - **Tests:** 654 passing, 0 failing, across 52 test files.
 - **Typecheck:** `tsc --noEmit` clean.
-- **Committed through:** `83870a4` — feat(hosting): uploads on object storage, direct upload over the 4.5 MB edge, smtp login codes.
+- **Committed through:** `d8bf1c7` — feat(auth): the emailed six-digit code is the door, and it opens an account that exists.
 - **Schema:** migrations 1–8.
-- **Working tree:** dirty (uncommitted work in progress).
+- **Working tree:** clean.
 <!-- SNAPSHOT:END -->
 
 Run it yourself, it takes four seconds:
