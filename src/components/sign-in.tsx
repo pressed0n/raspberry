@@ -25,7 +25,8 @@ export function safePath(value: string | null | undefined): string | null {
 const reasons: Record<string, string> = {
   expired: "That sign-in attempt expired. Start again.",
   denied: "Google sign-in was cancelled.",
-  not_allowed: "That account is not on this server's allowlist.",
+  not_allowed: "That address is not on this server's allowlist.",
+  no_account: "That address is allowed in, but has no account on this server yet.",
   email_unverified: "That Google account has no verified email address.",
   google_exchange_failed: "Google did not complete the sign-in. Try again.",
   google_userinfo_failed: "Google did not confirm that account. Try again.",
@@ -33,25 +34,71 @@ const reasons: Record<string, string> = {
   error: "Something went wrong. Try again.",
 };
 
+/**
+ * Sign-in, step one: the address.
+ *
+ * There is no button for a provider here and nothing loads from a third-party origin —
+ * the address goes up, the server decides, and a code either arrives or it does not. That
+ * is also why this form is a real `<form>` rather than a link: it is one field and one
+ * decision, and Enter in the field has to work.
+ */
 export function SignInPanel({ error, next }: { error?: string; next?: string }) {
+  const [email, setEmail] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [failure, setFailure] = useState("");
+  const input = useRef<HTMLInputElement>(null);
+
+  useEffect(() => { input.current?.focus(); }, []);
+
   useEffect(() => {
-    // Survives the Google round trip, which will not carry a query string back to us.
+    // Survives the round trip to the code screen, which does not carry a query string.
     const target = safePath(next);
     if (target) {
       try { sessionStorage.setItem(NEXT_KEY, target); } catch { /* Private mode: fall back to the home page. */ }
     }
   }, [next]);
 
-  const message = error ? (reasons[error] ?? reasons.error) : null;
+  const message = failure || (error ? (reasons[error] ?? reasons.error) : "");
+
+  async function submit(event: React.FormEvent) {
+    event.preventDefault();
+    if (busy || !email.trim()) return;
+    setBusy(true);
+    setFailure("");
+    try {
+      await request("/api/auth/start", { method: "POST", body: JSON.stringify({ email: email.trim() }) });
+      window.location.assign("/login/code");
+    } catch (thrown) {
+      setFailure(thrown instanceof RequestError ? thrown.message : "That address could not be checked. Try again.");
+      setBusy(false);
+    }
+  }
 
   return (
     <div className="auth">
       <div className="auth-panel">
         <strong className="auth-mark">Raspberry</strong>
-        <p className="auth-lede">Sign in with the Google account this server was set up for.</p>
-        {message && <p className="auth-alert" role="alert">{message}</p>}
-        <a className="btn-primary auth-action" href="/api/auth/google/start">Continue with Google</a>
-        <p className="auth-note">You will be emailed a 6-digit code next. Both are required — the Google account alone is not enough to get in.</p>
+        <p className="auth-lede">Enter the email address this server knows you by.</p>
+        <form onSubmit={submit}>
+          {message && <p className="auth-alert" role="alert">{message}</p>}
+          <label htmlFor="email" className="auth-label">Email address</label>
+          <input
+            id="email"
+            ref={input}
+            className="auth-input"
+            type="email"
+            value={email}
+            onChange={(event) => setEmail(event.target.value)}
+            autoComplete="email"
+            autoCapitalize="none"
+            spellCheck={false}
+            placeholder="you@example.com"
+          />
+          <button type="submit" className="btn-primary auth-action" disabled={busy || !email.trim()}>
+            {busy ? <><LoaderCircle size={15} className="spin" />Sending…</> : "Email me a code"}
+          </button>
+        </form>
+        <p className="auth-note">We will email a 6-digit code that expires in five minutes and works once. Only addresses that already have an account here can sign in.</p>
       </div>
     </div>
   );

@@ -302,7 +302,30 @@ const propertyIcons: Migration = {
   },
 };
 
-export const migrations: readonly Migration[] = [baseline, childPageLinks, authSchema, pageOrder, fileBlobs, databases, propertyIcons];
+const loginProviders: Migration = {
+  version: 8,
+  name: "login challenges record which factor bound the identity",
+  async up(sql) {
+    /* Sign-in used to be one flow: Google, then an emailed code. It is now two — the
+       emailed code on its own, or Google and then the code — and the row has to say
+       which, because the two differ in the one place that matters: an email challenge
+       may only be redeemed against an account that already exists, while the Google
+       path still provisions a workspace on first use. Reusing `google_sub IS NULL` to
+       mean "email only" would have let a column name quietly decide a security rule,
+       and `google_sub` is nullable on a fresh Google challenge too, so it would have
+       decided it wrongly for the window between "challenge created" and "Google
+       returned". */
+    try {
+      await sql.query("ALTER TABLE login_challenges ADD COLUMN provider TEXT NOT NULL DEFAULT 'google'");
+    } catch (error) {
+      // Re-run by hand on a database that already has it: the version row is the
+      // authority, this is the belt.
+      if (!/duplicate column|already exists/i.test(String((error as Error)?.message ?? error))) throw error;
+    }
+  },
+};
+
+export const migrations: readonly Migration[] = [baseline, childPageLinks, authSchema, pageOrder, fileBlobs, databases, propertyIcons, loginProviders];
 
 export type MigrationResult = { applied: number[]; version: number };
 

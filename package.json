@@ -18,7 +18,8 @@
     "test": "tsx --test tests/*.test.ts",
     "mcp": "tsx src/mcp/stdio.ts",
     "backup": "tsx scripts/backup.ts",
-    "check": "pnpm typecheck && pnpm test"
+    "check": "pnpm typecheck && pnpm test",
+    "accounts": "tsx scripts/provision-accounts.ts"
   },
   "dependencies": {
     "@blocknote/core": "0.56.0",

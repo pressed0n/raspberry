@@ -11,15 +11,27 @@ import { normalizeEmail } from "./tokens";
  * The allowlist is **mandatory**. An empty allowlist is not "everyone": it is
  * "not configured", and the deployment refuses to authenticate anyone. That is the
  * only reading of an absent value that cannot accidentally become an open door.
+ *
+ * Sign-in is an emailed six-digit code, and a code is only sent to an address that is
+ * both allowlisted *and* already has an account. The allowlist alone is not enough to
+ * create one: it is a static string in a deployment's environment, and a typo there
+ * should not silently provision a workspace.
+ *
+ * Google is **optional**. It is a second factor this deployment may layer on top of
+ * the code, and it is left out of the required set deliberately: an installation that
+ * has no Google client still has to be able to sign its two people in, and requiring a
+ * client id it never uses is how a working deployment reads as misconfigured.
  */
 export type MailBackend = "console" | "http" | "smtp";
 
 export type AuthConfig = {
+  publicOrigin: string;
+  allowedEmails: readonly string[];
+  /** True only when both halves of a Google client are present. */
+  hasGoogle: boolean;
   clientId: string;
   clientSecret: string;
-  publicOrigin: string;
   redirectUri: string;
-  allowedEmails: readonly string[];
   mailBackend: MailBackend;
   mailFrom: string;
   mailUrl: string;
@@ -54,8 +66,6 @@ export function readAuthConfig(): Configured<AuthConfig> {
   const smtpUser = text("RASPBERRY_SMTP_USER");
   const smtpPass = text("RASPBERRY_SMTP_PASS");
 
-  if (!clientId) missing.push("GOOGLE_CLIENT_ID");
-  if (!clientSecret) missing.push("GOOGLE_CLIENT_SECRET");
   if (!publicOrigin) missing.push("RASPBERRY_PUBLIC_ORIGIN");
   if (allowedEmails.length === 0) missing.push("RASPBERRY_ALLOWED_EMAILS");
   if (mailBackend !== "console" && mailBackend !== "http" && mailBackend !== "smtp") missing.push("RASPBERRY_MAIL_BACKEND (must be console, http or smtp)");
@@ -70,6 +80,17 @@ export function readAuthConfig(): Configured<AuthConfig> {
     if (!smtpUser) missing.push("RASPBERRY_SMTP_USER");
     if (!smtpPass) missing.push("RASPBERRY_SMTP_PASS");
   }
+  /* `console` prints the code to the service log. That is a convenience on one machine
+     and an account takeover on a host whose logs somebody else can read, so in
+     production it counts as *not configured* rather than as a working sender. Catching
+     it here means the deployment says so on `/api/health` instead of failing after the
+     person has typed their address and waited for an email that was never going out. */
+  if (mailBackend === "console" && process.env.NODE_ENV === "production" && process.env.RASPBERRY_MAIL_ALLOW_CONSOLE !== "1") {
+    missing.push("RASPBERRY_MAIL_BACKEND (a real sender: http or smtp)");
+  }
+  // Half a Google client is not a working second factor, and quietly falling back to
+  // "no Google" would hide the typo behind a sign-in that still works.
+  if (Boolean(clientId) !== Boolean(clientSecret)) missing.push(clientId ? "GOOGLE_CLIENT_SECRET" : "GOOGLE_CLIENT_ID");
 
   if (missing.length) return { ok: false, missing };
   // A plaintext origin would issue a Secure-less cookie and send the OAuth code over
@@ -79,7 +100,22 @@ export function readAuthConfig(): Configured<AuthConfig> {
 
   return {
     ok: true,
-    value: { clientId, clientSecret, publicOrigin, redirectUri: `${publicOrigin}/api/auth/google/callback`, allowedEmails, mailBackend, mailFrom, mailUrl, mailToken, smtpHost, smtpPort, smtpUser, smtpPass },
+    value: {
+      publicOrigin,
+      allowedEmails,
+      hasGoogle: Boolean(clientId && clientSecret),
+      clientId,
+      clientSecret,
+      redirectUri: `${publicOrigin}/api/auth/google/callback`,
+      mailBackend,
+      mailFrom,
+      mailUrl,
+      mailToken,
+      smtpHost,
+      smtpPort,
+      smtpUser,
+      smtpPass,
+    },
   };
 }
 

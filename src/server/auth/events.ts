@@ -16,6 +16,7 @@ export type AuthEventKind =
   | "login_started"
   | "login_state_rejected"
   | "login_not_allowlisted"
+  | "login_no_account"
   | "login_email_unverified"
   | "login_code_sent"
   | "login_code_failed"

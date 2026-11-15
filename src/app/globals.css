@@ -706,7 +706,7 @@
 
 .auth-label { display: block; margin-bottom: 6px; font-size: var(--fs-meta); color: var(--text-2); }
 
-.auth-code {
+.auth-code, .auth-input {
   width: 100%;
   margin-bottom: var(--s3);
   padding: 10px 12px;
@@ -714,11 +714,11 @@
   border-radius: var(--radius);
   background: var(--sunken);
   color: var(--text);
-  font-size: 20px;
-  letter-spacing: 0.3em;
-  text-align: center;
 }
-.auth-code:focus { outline: none; border-color: var(--accent-line); }
+/* Only the code is centred and spaced: six digits read as one shape, an address reads as
+   text, and letter-spacing an address makes it look like a password. */
+.auth-code { font-size: 20px; letter-spacing: 0.3em; text-align: center; }
+.auth-code:focus, .auth-input:focus { outline: none; border-color: var(--accent-line); }
 
 .auth-links { display: flex; justify-content: space-between; margin-top: var(--s4); font-size: var(--fs-meta); color: var(--text-3); }
 .auth-links button, .auth-links a { color: inherit; text-decoration: underline; text-underline-offset: 2px; }

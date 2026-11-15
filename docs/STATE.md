@@ -17,10 +17,10 @@ keeps it from rotting the way its predecessors did.
 
 <!-- SNAPSHOT:BEGIN — checked by tests/docs-freshness.test.ts -->
 
-- **Tests:** 640 passing, 0 failing, across 50 test files.
+- **Tests:** 654 passing, 0 failing, across 52 test files.
 - **Typecheck:** `tsc --noEmit` clean.
-- **Committed through:** `1b4ef6a` — fix(hosting): pin engines to Node 24.x so Vercel matches CI.
-- **Schema:** migrations 1–7.
+- **Committed through:** `83870a4` — feat(hosting): uploads on object storage, direct upload over the 4.5 MB edge, smtp login codes.
+- **Schema:** migrations 1–8.
 - **Working tree:** dirty (uncommitted work in progress).
 <!-- SNAPSHOT:END -->
 
@@ -40,8 +40,12 @@ loopback only. Not commercial, not competing with Notion, not a demo for anyone 
 Signed off by the owner on 28 October 2026 and worth not re-litigating:
 
 - **One user.** Multi-user identity is a retrofit nobody has asked for. `B16` is parked.
-- **Not hosted.** The hosting pilot was cancelled and its files deleted. It returns only
-  as a new decision, never as resumption of an old plan.
+  The hosted copy has **two accounts** at the owner's instruction — two people with a
+  workspace each, which is not the multiuser retrofit and does not bring it closer.
+- **Hosted, as a new decision.** The 28 October hosting pilot was cancelled and its files
+  deleted, and that cancellation stands. On 15 November 2026 the owner took a *different*
+  decision — Vercel plus Neon — described under "Hosted deployment". The old plan is still
+  not resumption material.
 - **"Raspberry Pi" is a name, not a deployment target.** The question is retired.
 
 ## What is built
@@ -54,8 +58,14 @@ Enough to be concrete without the 42 KB of narrative that used to be here (it is
   dialog, theming from a data palette.
 - **Editing** — BlockNote-based block editor, object selection and clipboard, media
   blocks, clipboard-image paste and drag-in, drafts with optimistic sync.
-- **Auth** — Google OIDC plus an emailed one-time code as second factor, sessions,
-  migration-versioned schema. Untested against a real mail provider by design; see parked.
+- **Auth** — an emailed six-digit code, and nothing else required. An address signs in only
+  when it is **allowlisted *and* already has an account** (`src/app/api/auth/start/route.ts`
+  → `/api/auth/verify-code`): 6 digits from `randomInt`, salted-scrypt stored, single use,
+  five minutes, five attempts, `__Host-` cookie bound by a state digest. Google OIDC survives
+  as an *optional* second factor — a deployment without `GOOGLE_CLIENT_ID` still signs its
+  people in, which is the shape the hosted copy runs. Accounts are created deliberately by
+  `pnpm accounts`, never by whoever reaches the form first. Untested against a real mail
+  provider; that is the one thing missing, and it is named under "Hosted deployment".
 - **Database** — schema, the 16-property registry, the pure query pipeline, CRUD over
   properties/views/rows/cells, a table view with gutter, row drag, duplicate, trash,
   column menus, icon pickers and hidden properties. **This is the live workfront.**
@@ -1513,28 +1523,37 @@ the workspace-scoped keys, and the "the declared size is not the size that is en
 
 **Not yet working, in the order it blocks:**
 
-1. **Sign-in still needs two credentials, and they are the only things missing.**
+1. **Sign-in needs exactly one thing now: a sender.** The flow itself is built and
+   deployed — address in, six-digit code out, code in, you are in — and
    `RASPBERRY_AUTH_MODE=session`, `RASPBERRY_PUBLIC_ORIGIN`, `RASPBERRY_ALLOWED_EMAILS`
-   (two addresses) and `RASPBERRY_OWNER_EMAIL` are set on the project, and the storage
-   variables are too. What is absent is `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — an OAuth
-   client whose redirect URI is exactly
-   `https://raspberry-blush.vercel.app/api/auth/google/callback` — and one mail credential.
-   Google sign-in alone does not log anyone in: `completeCallback` issues a **six-digit**
-   one-time code (`randomCode(6)`, ten-minute TTL, single use, attempt-limited) and
-   `readAuthConfig` refuses the whole mode if any piece is missing.
-   A `smtp` backend was added for this (`nodemailer`, pinned) alongside `http` and `console`.
-   One constraint worth knowing before choosing a provider: a shared/sandbox sender such as
-   Resend's `onboarding@resend.dev` only delivers to the account owner's own address, so a
-   **second** recipient needs a verified domain. A Gmail app password over SMTP has no such
-   limit, which is why `smtp` is the cheaper answer for two people.
-2. **`pnpm backup` dies on PostgreSQL** by design (`src/server/backup.ts` refuses a non-`file:`
+   (two addresses) and `RASPBERRY_OWNER_EMAIL` are set on the project, as are the storage
+   variables. What is absent is a credential the deployment can *send* with:
+   `RASPBERRY_MAIL_BACKEND=http` plus `RASPBERRY_MAIL_URL` and `RASPBERRY_MAIL_TOKEN`, or
+   `smtp` plus host/port/user/pass. `console` counts as **unconfigured** in production on
+   purpose, so until one of those is set `authConfigured()` is false and the deployment
+   serves nobody rather than everybody.
+   Google is **no longer required.** `readAuthConfig` used to refuse the whole mode without
+   `GOOGLE_CLIENT_ID`, which made a working two-person sign-in read as misconfigured; the
+   client pair is now optional, and the route refuses only itself
+   (`google_not_configured`) if asked for without one.
+   One constraint before choosing a provider: a shared/sandbox sender such as Resend's
+   `onboarding@resend.dev` only delivers to the account owner's own address, so a **second**
+   recipient needs a verified domain.
+2. **Both accounts have to be provisioned, because that is the requirement.**
+   `pnpm accounts --url <postgres-url> --adopt nikprestonk@gmail.com
+   tina.mahnic.photography@gmail.com` creates the two `accounts` rows; `--adopt` is what
+   lets the owner address inherit the 215 migrated pages, and Tina gets an empty workspace of
+   her own instead of somebody else's notes. Until it runs, both addresses are refused with
+   `no_account` — that is the "user exists" gate working, not a bug, and it is also why an
+   allowlist typo cannot mint a workspace.
+3. **`pnpm backup` dies on PostgreSQL** by design (`src/server/backup.ts` refuses a non-`file:`
    URL). Backups become Neon's point-in-time restore, and the habit of a local `pnpm backup`
    stops meaning anything on the hosted copy.
-3. **Rate limiting is per instance** (`src/server/rate-limit.ts`), so it weakens as Vercel
+4. **Rate limiting is per instance** (`src/server/rate-limit.ts`), so it weakens as Vercel
    scales out. `RASPBERRY_TRUST_PROXY` is deliberately **not set**: `callerIp` takes the
    leftmost `X-Forwarded-For` entry, which the caller controls, so leaving it off makes the
    limiter over-limit rather than under-limit.
-4. **`B8`, the deployment runbook, is still unwritten.**
+5. **`B8`, the deployment runbook, is still unwritten.**
 
 ## Explicitly cancelled
 

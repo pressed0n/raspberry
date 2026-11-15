@@ -1425,3 +1425,64 @@ carry on" produces a file that is a broken image by the next request — a failu
 a bug in the browser three pages later. `FileStore` throws `storage_not_configured` instead, the
 same way the deployment refuses to serve data when sign-in is unconfigured. A deployment that
 says what it cannot do is worth more than one that half works.
+
+---
+
+## Sign-in is an address and a code, and the code opens an account that exists
+
+The owner's requirement, in his words: *"User enters email address. If email address is
+whitelisted and user exists send a one time code on users email address that expires in 5
+minutes (6 digit code). User enters 6 digit code and is in."*
+
+What was there before was Google OIDC, then the code as a second factor, with
+`readAuthConfig` refusing the entire mode if `GOOGLE_CLIENT_ID` was absent. That made a
+deployment which could sign two people in perfectly well report itself as misconfigured,
+and it made an OAuth client a prerequisite for a feature nobody wanted from Google. The
+provider is now optional and the code is the door; `beginLogin` refuses only itself
+(`google_not_configured`) when asked for without a client.
+
+Three things in that sentence are load-bearing:
+
+- **"whitelisted *and* user exists."** Two gates, not one. The allowlist is a string in a
+  deployment's environment; the account row is the database saying somebody has somewhere
+  to put their notes. Requiring both means a typo in an env var cannot mint a workspace,
+  and it means an address that is permitted but unprovisioned gets a clear refusal
+  (`no_account`) instead of an empty app that looks broken. `pnpm accounts` is how a row
+  exists — a deliberate second act, with `--adopt` naming the one address allowed to
+  inherit the notes that are already there.
+- **"expires in 5 minutes."** The Google flow allowed ten, because the row has to outlive
+  a redirect to Google and back before there is anything to type. An email challenge has no
+  such leg, so its expiry *is* the code's expiry — five minutes, `CODE_TTL_MS`, one number
+  rather than a sentence in the UI that drifts from a column.
+- **A code is not sent to an address that will be refused.** The checks run before
+  `randomCode()`, not after. A code that is emailed and then rejected is a live credential
+  sitting in a mailbox for no reason, and it teaches the person that the email was the part
+  that failed.
+
+`login_challenges.provider` (migration 8) is what tells the two flows apart at the second
+step, because the one place they differ is the one that matters: `email` may only open an
+existing account, `google` still provisions. Using `google_sub IS NULL` to mean "email
+only" would have let a column name decide a security rule, and it is null on a fresh Google
+challenge too, so it would have decided it wrongly for the window between "challenge
+created" and "Google returned".
+
+The state half of the `__Host-` cookie is now checked in `consumeCode`, as a digest, before
+the attempt counter moves. It used to be checked once, in the OAuth callback, so an
+`email` challenge had no use for it — and a leaked challenge id would have bought a guess
+at 10^6. It is cheap to check and it means an id alone cannot burn the real person's
+attempt budget.
+
+## A mail sender is the one thing that cannot be faked
+
+`RASPBERRY_MAIL_BACKEND=console` prints the code to the service log. On a laptop that is a
+convenience; on a host whose logs somebody else can read it is a handover of every account.
+So `console` counts as **not configured** in production, and `authConfigured()` is false
+until a real sender is set — which makes `/api/health` say so, instead of the deployment
+looking healthy and failing after somebody has typed their address and waited.
+
+The relay shape (`http`) is `{from,to,subject,text}` to a URL with a bearer token, which is
+deliberately Resend's own `/emails` body: a provider that speaks that shape needs an env
+var, not a code change. The constraint that decides the choice of provider is not obvious
+and is not about this codebase: a shared sandbox sender such as Resend's
+`onboarding@resend.dev` only delivers to the account owner's own address, so the **second**
+recipient needs a domain verified with that provider.

@@ -19,8 +19,13 @@ import { readCookie, SESSION_COOKIE } from "./server/auth/cookies";
  * at all, and so a person sees a login page instead of a JSON 401.
  */
 const HEALTH_PATH = "/api/health";
-const PUBLIC_PAGES = new Set(["/login", "/login/code"]);
-const PUBLIC_APIS = new Set(["/api/auth/google/start", "/api/auth/google/callback", "/api/auth/verify-code", "/api/auth/resend", "/api/auth/logout"]);
+/* Exported so `tests/auth-routes-public.test.ts` can hold them to the routes on disk. A
+   route added under `src/app/api/auth/` that is not listed here is refused by this proxy
+   before its handler runs — which is not a bug you can see in a unit test, because the
+   handler is fine. It was found the honest way: the sign-in form 401'd against a real
+   build while every handler test passed. */
+export const PUBLIC_PAGES = new Set(["/login", "/login/code"]);
+export const PUBLIC_APIS = new Set(["/api/auth/start", "/api/auth/google/start", "/api/auth/google/callback", "/api/auth/verify-code", "/api/auth/resend", "/api/auth/logout"]);
 
 const noStore = (response: NextResponse): NextResponse => {
   response.headers.set("Cache-Control", "no-store");

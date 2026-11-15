@@ -1,4 +1,4 @@
-# Where everything lives
+﻿# Where everything lives
 
 Read this before grepping. It exists because every session re-derived the same answers —
 "which file owns drag?", "where does the database live?", "which test is the pattern to
@@ -46,10 +46,10 @@ not on PATH here, so the invocations above are the ones that work.
 
 | Path | What it is | Read it when |
 |---|---|---|
-| `src/` | The app. Next.js App Router + React 19. 176 files. | Always. |
-| `tests/` | 50 test files + `schema.ts` helper. `tsx --test`. | Before and after any change. |
+| `src/` | The app. Next.js App Router + React 19. 177 files. | Always. |
+| `tests/` | 52 test files + `schema.ts` helper. `tsx --test`. | Before and after any change. |
 | `docs/` | `STATE.md` (truth), `MAP.md` (this), `DECISIONS.md` (why), `TESTING.md` (how to prove), `ARCHIVE/` (history). | First, in that order. |
-| `scripts/` | 64 real tools, documented in §7. | To run or verify something. |
+| `scripts/` | 65 real tools, documented in §7. | To run or verify something. |
 | `scripts/scratch/` | Gitignored one-off probes, incl. the `cdp-*.mjs` browser probes. Evidence, not tooling — no counts here, because the number changes every session. Import `scripts/browser-session.mjs` for new ones. | Only to read a past measurement. |
 | `data/` | Gitignored. `raspberry.sqlite` is **the owner's live database**, plus `uploads/<sha>` blobs, `logs/`, `archive/`, and **`backups/`** — restore points, written by `pnpm backup`. | Never casually. §8. |
 | `artifacts/` | Gitignored test evidence: screenshots and probe logs. **Never a database** — this folder is documented as disposable, so owner data in it is one `rd /s /q` from gone. Was 14.6 GB of leaked Chrome profiles — see §9. | Rarely. |
@@ -363,6 +363,7 @@ disagreeing about where the same place is.
 | `backup.ts` | Database backup |
 | `session.ts`, `rate-limit.ts` | Sessions, request limits |
 | `auth/` | `config`, `google`, `login`, `challenges`, `cookies`, `events`, `limits`, `mail`, `session-store`, `tokens` |
+| Where a sign-in begins | `src/app/api/auth/start/route.ts` (address → code) and `src/app/api/auth/google/start/route.ts` (optional second factor), both ending at `src/app/api/auth/verify-code/route.ts`. **One door, two providers, one row.** `login_challenges.provider` (migration 8) says which: an `email` challenge may only open an account that **already exists** (`existingAccount`), a `google` one still provisions a workspace on first use (`ensureAccount`). The address is written server-side into the challenge row, never taken from the cookie, and the `__Host-` cookie carries `<id>.<state>` with the state checked as a digest before a guess is charged — a leaked id alone buys nothing and cannot burn somebody's attempt budget. The code is 6 digits from `randomInt`, salted-scrypt hashed, single use, five minutes (`CODE_TTL_MS`), five attempts, and re-checked against the allowlist at the second step. Google is **optional**: `RASPBERRY_ALLOWED_EMAILS` + a mail sender are the only required auth settings, and a deployment without `GOOGLE_CLIENT_ID` still signs its people in. `console` mail counts as unconfigured in production, so `/api/health` says so instead of failing after somebody has waited for an email |
 
 `src/mcp/`: `server.ts` (the MCP tool implementation), `stdio.ts` (stdio entry).
 
@@ -398,6 +399,7 @@ and use `scripts/browser-session.mjs` so the browser profile cleans itself up.
 | `scripts/backup.ts` | Copies the live database to a timestamped backup (`pnpm backup`). SQLite only — it refuses a `postgres://` URL, where the provider's point-in-time restore is the backup |
 | `scripts/migrate-to-postgres.ts` | Moves an existing `data/raspberry.sqlite` workspace into PostgreSQL: ids and `deleted_at` preserved, column list taken as the intersection of both schemas, `ON CONFLICT DO NOTHING` so a second run is a no-op. The source is opened `readOnly`. `--dry-run` counts without writing; `--url` picks the target, so the same command fills a probe branch before production |
 | `scripts/migrate-blobs-storage.ts` | Moves the **bytes** — the half `migrate-to-postgres.ts` cannot move, because they were never in the database. Reads `files` and copies `data/uploads/<sha>` to `w/<workspace>/<sha>` in the bucket. Content-addressed, so nothing is rewritten; idempotent, so a second run uploads nothing; a blob missing from disk is reported with its id rather than invented. `--dry-run` and `--dir` |
+| `scripts/provision-accounts.ts` | Creates the `accounts` rows the emailed-code sign-in opens (`pnpm accounts`). Sign-in is allowlist **and** account, so this is the deliberate second act. `--adopt <email>` (or `RASPBERRY_OWNER_EMAIL`) is the single address that inherits the local workspace's owner user id; every other address gets an empty workspace of its own. Skips what exists, deletes nothing, and a second run is a no-op. `--dry-run`, `--url` |
 | `scripts/check-docs.mjs` | The drift gate: STATE snapshot, counts, MAP coverage, root-markdown allowlist, artifacts leak, git facts |
 | `scripts/check-icons.mjs` | Verifies property/icon references resolve |
 | `scripts/gen-palette.mjs` | Regenerates the colour palette data used by `src/lib/palette.ts` |

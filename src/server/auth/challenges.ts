@@ -3,17 +3,26 @@ import type { Sql } from "../database";
 import { equalHex, hashCode, randomToken, sha256, verifyCode } from "./tokens";
 
 /**
- * The login challenge: one row that spans the OAuth round trip and the emailed code.
+ * The login challenge: one row that spans whatever proved the identity and the emailed
+ * code that finishes it.
  *
  * Keeping both factors on the same row is what binds them together. The row records
- * the Google subject that passed the first factor, so a code minted for one identity
- * cannot be replayed against another even if an attacker has both the challenge id
- * and the cookie.
+ * the identity that passed the first factor, and now *which* factor that was, so a code
+ * minted for one identity cannot be replayed against another even if an attacker has
+ * both the challenge id and the cookie.
+ *
+ * Two providers share the table because they share everything that matters: one row, one
+ * attempt budget, one expiry, one single use. They differ in the answer to a single
+ * question — may this sign-in create an account, or only open one that exists — and that
+ * question is answered from `provider`, not from a null column standing in for it.
  */
 export const CHALLENGE_TTL_MS = 10 * 60 * 1000;
 export const MAX_ATTEMPTS = 5;
 export const MAX_SENDS = 5;
 export const RESEND_COOLDOWN_MS = 60 * 1000;
+
+/** How the identity was established before the code was emailed. */
+export type ChallengeProvider = "google" | "email";
 
 export type Challenge = {
   id: string;
@@ -24,6 +33,7 @@ export type Challenge = {
 
 export type ChallengeRow = {
   id: string;
+  provider: ChallengeProvider;
   stateHash: string;
   pkceVerifier: string;
   subject: string | null;
@@ -41,6 +51,9 @@ export type ChallengeRow = {
 
 const mapRow = (row: Record<string, unknown>): ChallengeRow => ({
   id: String(row.id),
+  // A row written before migration 8 has no `provider`; every one of those was a Google
+  // challenge, which is what the column's default says.
+  provider: row.provider === "email" ? "email" : "google",
   stateHash: String(row.state_hash),
   pkceVerifier: String(row.pkce_verifier),
   subject: row.google_sub == null ? null : String(row.google_sub),
@@ -61,15 +74,47 @@ export async function createChallenge(sql: Sql, now = new Date()): Promise<Chall
   const state = randomToken();
   const verifier = randomToken(48);
   const expiresAt = new Date(now.getTime() + CHALLENGE_TTL_MS).toISOString();
-  await sql.query("INSERT INTO login_challenges(id,state_hash,pkce_verifier,created_at,expires_at) VALUES($1,$2,$3,$4,$5)", [
+  await sql.query("INSERT INTO login_challenges(id,state_hash,pkce_verifier,provider,created_at,expires_at) VALUES($1,$2,$3,$4,$5,$6)", [
     id,
     sha256(state),
     verifier,
+    "google",
     now.toISOString(),
     expiresAt,
   ]);
   return { id, state, verifier, expiresAt };
 }
+
+/** The emailed code is good for five minutes, counted from when it was sent. */
+export const CODE_TTL_MS = 5 * 60 * 1000;
+
+/**
+ * The email-only challenge: no OAuth round trip, so the row is created already bound to
+ * the address and already carrying the code.
+ *
+ * The expiry is the code's, not the flow's. In the Google flow the row has to outlive a
+ * redirect to Google and back before there is anything to type, which is why that one is
+ * allowed ten minutes. Here the clock starts when the person opens the email, so five is
+ * both what the screen promises and what the row enforces — one number, not a sentence
+ * that drifts from a column.
+ *
+ * A `state` is still minted and still stored as a digest, even though nothing external
+ * echoes it back. It travels in the `__Host-` cookie beside the id, so redeeming a code
+ * needs the cookie and not just the id: an id that leaked into a log is not enough.
+ */
+export async function createEmailChallenge(sql: Sql, input: { email: string; code: string; now?: Date }): Promise<Challenge> {
+  const now = input.now ?? new Date();
+  const id = randomUUID();
+  const state = randomToken();
+  const { hash, salt } = await hashCode(input.code);
+  const expiresAt = new Date(now.getTime() + CODE_TTL_MS).toISOString();
+  await sql.query(
+    "INSERT INTO login_challenges(id,state_hash,pkce_verifier,provider,email,code_hash,code_salt,attempts,sends,last_sent_at,created_at,expires_at) VALUES($1,$2,$3,'email',$4,$5,$6,0,1,$7,$8,$9)",
+    [id, sha256(state), randomToken(48), input.email, hash, salt, now.toISOString(), now.toISOString(), expiresAt],
+  );
+  return { id, state, verifier: "", expiresAt };
+}
+
 
 /**
  * Loads a challenge for the callback and checks the state parameter against the
@@ -117,7 +162,7 @@ export async function noteSend(sql: Sql, id: string, now = new Date()): Promise<
 
 export type CodeResult =
   | { ok: true; challenge: ChallengeRow }
-  | { ok: false; reason: "unknown" | "expired" | "incomplete" | "exhausted" }
+  | { ok: false; reason: "unknown" | "expired" | "incomplete" | "exhausted" | "state" }
   | { ok: false; reason: "mismatch"; remaining: number };
 
 /**
@@ -126,15 +171,28 @@ export type CodeResult =
  * The attempt counter is incremented **before** the comparison, so a crash between
  * the two cannot hand back an extra guess. A correct code burns the row in the same
  * transaction, which is what makes it one-time rather than merely time-limited.
+ *
+ * `state` is checked before the counter moves: a caller holding the id but not the
+ * cookie that was issued with it has not earned a guess at the code, and charging them
+ * one would let anyone holding a leaked id lock the real person out by burning the
+ * budget. It is optional because the Google flow has already proved the same value in
+ * `challengeForCallback` — passing it twice is harmless, omitting it is only safe where
+ * that check already ran.
  */
-export async function consumeCode(sql: Sql, input: { id: string; code: string; now?: Date }): Promise<CodeResult> {
+export async function consumeCode(sql: Sql, input: { id: string; code: string; state?: string; now?: Date }): Promise<CodeResult> {
   const now = input.now ?? new Date();
   const [row] = await sql.query("SELECT * FROM login_challenges WHERE id=$1", [input.id]);
   if (!row) return { ok: false, reason: "unknown" };
   const challenge = mapRow(row);
   if (challenge.consumedAt) return { ok: false, reason: "exhausted" };
   if (now.toISOString() >= challenge.expiresAt) return { ok: false, reason: "expired" };
-  if (!challenge.subject || !challenge.email || !challenge.codeHash || !challenge.codeSalt) return { ok: false, reason: "incomplete" };
+  if (input.state !== undefined && !equalHex(sha256(input.state), challenge.stateHash)) return { ok: false, reason: "state" };
+  /* What a challenge must carry by the time a code can be redeemed: an address to open
+     an account with, and a code to compare against. `subject` is required only of the
+     Google flow, where it is the identity the provider asserted — an email challenge has
+     no such thing, and requiring one would make every one of them "incomplete". */
+  if (!challenge.email || !challenge.codeHash || !challenge.codeSalt) return { ok: false, reason: "incomplete" };
+  if (challenge.provider === "google" && !challenge.subject) return { ok: false, reason: "incomplete" };
   if (challenge.attempts >= MAX_ATTEMPTS) {
     await sql.query("UPDATE login_challenges SET consumed_at=$1 WHERE id=$2 AND consumed_at IS NULL", [now.toISOString(), challenge.id]);
     return { ok: false, reason: "exhausted" };

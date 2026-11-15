@@ -3,10 +3,10 @@ import { LOCAL_WORKSPACE_ID, type Database, type Sql } from "../database";
 import { AppError } from "../service";
 import { isAllowedEmail, requireAuthConfig } from "./config";
 import { authorizationUrl, exchangeCode } from "./google";
-import { bindIdentity, challengeForCallback, consumeCode, createChallenge, noteSend } from "./challenges";
+import { bindIdentity, challengeForCallback, CODE_TTL_MS, consumeCode, createChallenge, createEmailChallenge, noteSend } from "./challenges";
 import { createMailer, loginCodeMessage, type Mailer } from "./mail";
 import { recordEvent, type AuthEventKind } from "./events";
-import { hashCode, randomCode, sha256 } from "./tokens";
+import { hashCode, normalizeEmail, randomCode, sha256 } from "./tokens";
 import { mintSession } from "./session-store";
 
 /**
@@ -19,14 +19,68 @@ import { mintSession } from "./session-store";
  * then re-checks and writes — and the second write re-validates rather than trusting
  * what the first read saw.
  */
-export const CODE_MINUTES = 5;
+export const CODE_MINUTES = CODE_TTL_MS / 60_000;
 
 export type BeginLoginResult = { url: string; challengeId: string; state: string };
 
 export async function beginLogin(database: Database, now = new Date()): Promise<BeginLoginResult> {
   const config = requireAuthConfig();
+  // Google is an optional second factor now. Asking for it on a deployment that has no
+  // client is a configuration answer, not a crash: the route renders it as a 503 naming
+  // the two variables, the same way every other unconfigured piece does.
+  if (!config.hasGoogle) throw new AppError(503, "google_not_configured", "Google sign-in is not configured on this server. Use the emailed code instead.");
   const challenge = await database.transaction((sql) => createChallenge(sql, now));
   return { url: authorizationUrl(config, { state: challenge.state, verifier: challenge.verifier }), challengeId: challenge.id, state: challenge.state };
+}
+
+export type StartEmailResult = { challengeId: string; state: string; email: string; expiresAt: string };
+
+/**
+ * Step one of the sign-in this installation actually uses: an address, and nothing else.
+ *
+ * Two checks stand between the form and an email in somebody's inbox, and they answer
+ * different questions. The allowlist is the operator saying *who may ever* sign in; the
+ * account row is this installation saying *you already have somewhere to put your notes*.
+ * Both are required, and the second is not created here — an allowlist is a string in a
+ * deployment's environment, and a typo in it should not quietly mint a workspace.
+ *
+ * No code is generated until both pass. A code that is emailed and then refused is a
+ * live credential sitting in a mailbox for no reason, and it teaches the person that the
+ * email was the part that failed.
+ */
+export async function startEmailLogin(
+  database: Database,
+  input: { email: string; ip: string | null; now?: Date; mailer?: Mailer },
+): Promise<StartEmailResult> {
+  const config = requireAuthConfig();
+  const now = input.now ?? new Date();
+  const email = normalizeEmail(input.email);
+  if (!email.includes("@")) throw new AppError(400, "invalid_email", "That is not an email address.");
+
+  if (!isAllowedEmail(email, config.allowedEmails)) {
+    await database.transaction((sql) => recordEvent(sql, { kind: "login_not_allowlisted", email, ip: input.ip }, now));
+    throw new AppError(403, "not_allowed", "That address is not allowed to use this Raspberry.");
+  }
+
+  const account = await database.transaction((sql) => existingAccount(sql, email, now));
+  if (!account) {
+    await database.transaction((sql) => recordEvent(sql, { kind: "login_no_account", email, ip: input.ip }, now));
+    throw new AppError(403, "no_account", "No Raspberry account exists for that address yet. Ask for one to be created.");
+  }
+
+  const code = randomCode();
+  const challenge = await database.transaction((sql) => createEmailChallenge(sql, { email, code, now }));
+
+  const mailer = input.mailer ?? createMailer(config);
+  try {
+    await mailer({ to: email, subject: `Your Raspberry code: ${code}`, text: loginCodeMessage(code, CODE_MINUTES) });
+  } catch (error) {
+    await database.transaction((sql) => recordEvent(sql, { kind: "mail_failed", email, ip: input.ip }, now));
+    throw error;
+  }
+  await database.transaction((sql) => recordEvent(sql, { kind: "login_code_sent", email, ip: input.ip, detail: "email" }, now));
+
+  return { challengeId: challenge.id, state: challenge.state, email, expiresAt: challenge.expiresAt };
 }
 
 export type CallbackInput = {
@@ -115,14 +169,19 @@ export async function resendCode(database: Database, input: { challengeId: strin
   await mailer({ to: outcome.email, subject: `Your Raspberry code: ${code}`, text: loginCodeMessage(code, CODE_MINUTES) });
 }
 
-export type LoginInput = { challengeId: string; code: string; ip: string | null; userAgent: string | null; now?: Date };
+export type LoginInput = { challengeId: string; code: string; state?: string; ip: string | null; userAgent: string | null; now?: Date };
 
 export type LoginResult = { token: string; sessionId: string; userId: string; absoluteExpiresAt: string };
 
 /**
- * The second factor. Verifies the code, resolves or provisions the account, and mints
- * the session — all in one transaction, so a code is never consumed without a session
- * and a session is never minted for an unverified code.
+ * The second factor. Verifies the code, resolves the account, and mints the session —
+ * all in one transaction, so a code is never consumed without a session and a session is
+ * never minted for an unverified code.
+ *
+ * Which account it resolves depends on how the identity was established. A code that
+ * arrived from the email-only flow opens an account that already exists and refuses to
+ * invent one; the Google flow keeps provisioning, because there the workspace was
+ * promised to a named owner address and the provider has already vouched for it.
  */
 export async function completeLogin(database: Database, input: LoginInput): Promise<LoginResult> {
   const config = requireAuthConfig();
@@ -132,7 +191,7 @@ export async function completeLogin(database: Database, input: LoginInput): Prom
   // back the very audit row that records the rejection. The transaction commits first,
   // and the caller sees an error only afterwards.
   const outcome = await database.transaction(async (sql) => {
-    const result = await consumeCode(sql, { id: input.challengeId, code: input.code, now });
+    const result = await consumeCode(sql, { id: input.challengeId, code: input.code, state: input.state, now });
     if (!result.ok) {
       const failure = codeFailure(result.reason, result.reason === "mismatch" ? result.remaining : undefined);
       await recordEvent(sql, { kind: failure.event, ip: input.ip, detail: result.reason }, now);
@@ -147,7 +206,28 @@ export async function completeLogin(database: Database, input: LoginInput): Prom
       return { ok: false as const, error: new AppError(403, "not_allowed", "This account is not allowed to use this Raspberry.") };
     }
 
-    const account = await ensureAccount(sql, { subject, email, displayName: result.challenge.displayName }, now);
+    /* The address was allowlisted a moment ago or this code was never sent, so the two
+       refusals below are not the same thing. One says "someone with the right to run
+       this server decided you are not on the list"; the other says "you are on the list
+       and there is nothing here for you yet, because an account is made deliberately and
+       not by whoever reaches the form first". Saying so costs a little enumeration on a
+       two-person installation; saying nothing costs the operator an hour of staring at a
+       mailbox that is working perfectly. */
+    let account: Account;
+    if (result.challenge.provider === "email") {
+      const existing = await existingAccount(sql, email, now);
+      if (!existing) {
+        await recordEvent(sql, { kind: "login_no_account", email, ip: input.ip }, now);
+        return {
+          ok: false as const,
+          error: new AppError(403, "no_account", "No Raspberry account exists for that address yet. Ask for one to be created."),
+        };
+      }
+      account = existing;
+    } else {
+      account = await ensureAccount(sql, { subject, email, displayName: result.challenge.displayName }, now);
+    }
+
     const session = await mintSession(sql, {
       userId: account.userId,
       workspaceId: account.workspaceId,
@@ -164,7 +244,7 @@ export async function completeLogin(database: Database, input: LoginInput): Prom
 }
 
 function codeFailure(
-  reason: "unknown" | "expired" | "incomplete" | "exhausted" | "mismatch",
+  reason: "unknown" | "expired" | "incomplete" | "exhausted" | "state" | "mismatch",
   remaining?: number,
 ): { error: AppError; event: AuthEventKind } {
   switch (reason) {
@@ -172,6 +252,13 @@ function codeFailure(
       return { error: new AppError(400, "code_expired", "That code expired. Start again to get a new one."), event: "login_code_expired" };
     case "exhausted":
       return { error: new AppError(429, "code_exhausted", "Too many incorrect codes. Start again to get a new one."), event: "login_code_exhausted" };
+    /* A cookie that does not match the challenge means the code was issued to a
+       different browser than the one typing it. That is indistinguishable from an
+       expired attempt as far as the person is concerned, and it is recorded as a
+       rejected state so the audit log shows an attempt without the id.
+       The code is **not** consumed: see `consumeCode`. */
+    case "state":
+      return { error: new AppError(400, "login_expired", "That sign-in attempt expired. Start again."), event: "login_state_rejected" };
     case "mismatch":
       return {
         error: new AppError(
@@ -199,6 +286,30 @@ export type Account = { userId: string; workspaceId: string; created: boolean };
 export function claimableLocalWorkspace(email: string, configured = process.env.RASPBERRY_OWNER_EMAIL): boolean {
   const owner = (configured ?? "").trim().toLowerCase();
   return owner.length > 0 && owner === email.trim().toLowerCase();
+}
+
+/**
+ * The account an address already owns, or nothing.
+ *
+ * Matched on the address rather than on a provider subject, because the emailed code is
+ * the only thing proving identity here — there is no provider to ask. `disabled_at`
+ * matters: revoking access has to mean something, and an account row that was switched
+ * off must not be reachable by a code that would otherwise be valid.
+ *
+ * The workspace is picked the way `ensureAccount` picks it, owner membership first, so a
+ * person who belongs to more than one lands in the same one every time rather than in
+ * whichever the planner happens to return.
+ */
+export async function existingAccount(sql: Sql, email: string, _now: Date): Promise<Account | null> {
+  const [account] = await sql.query("SELECT user_id FROM accounts WHERE email=$1 AND disabled_at IS NULL ORDER BY created_at LIMIT 1", [email]);
+  if (!account) return null;
+  const userId = String(account.user_id);
+  const [membership] = await sql.query(
+    "SELECT workspace_id FROM memberships WHERE user_id=$1 ORDER BY CASE role WHEN 'owner' THEN 0 ELSE 1 END, workspace_id LIMIT 1",
+    [userId],
+  );
+  if (!membership) throw new AppError(403, "no_workspace", "That account has no workspace. Ask for access to be re-granted.");
+  return { userId, workspaceId: String(membership.workspace_id), created: false };
 }
 
 /**

@@ -32,6 +32,7 @@ export async function POST(request: Request) {
       const login = await completeLogin(await getDatabase(), {
         challengeId: challenge.id,
         code: parsed.data.code,
+        state: challenge.state,
         ip: callerIp(request.headers),
         userAgent: request.headers.get("user-agent"),
       });
