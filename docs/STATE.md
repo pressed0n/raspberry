@@ -1396,10 +1396,10 @@ statuses and is cleared only by an adoption or a successful save.
 | Gate | Result |
 |---|---|
 | `tsc --noEmit` | 0 errors |
-| Suite | **690 passing**, 0 failing, 56 files (`draft-stale`, `live-sync`, `sync-stamp`, `sync-digest` are new) |
+| Suite | **694 passing**, 0 failing, 57 files (`draft-stale`, `live-sync`, `sync-stamp`, `sync-digest` are new) |
 | `check-docs --full` | OK |
-| Two-client browser probe, 1400×900 and 390×844 | **5/5 at both** — A's retitle arrives on B with `performance.timeOrigin` **unchanged** (so not a reload), B is polling (`/api/sync` count rises), B keeps the text it was typing, and B shows `is-stale` |
-| The same probe with `/api/sync` deleted (`-Before`) | **fails the two propagation checks at both widths**, printing `second client still shows "Sync probe …"` |
+| Two-client browser probe, 1400×900, 900×800 and 390×844 | **5/5 at all three** — A's retitle arrives on B with `performance.timeOrigin` **unchanged** (so not a reload), B is polling (`/api/sync` count rises), B keeps the text it was typing, and B shows `is-stale` |
+| The same probe with `/api/sync` deleted (`-Before`) | **fails the two propagation checks at every width**, printing `second client still shows "Sync probe …"` |
 
 ### What is not
 

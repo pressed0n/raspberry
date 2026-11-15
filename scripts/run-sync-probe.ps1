@@ -60,7 +60,7 @@ try {
   $env:BASE = "http://127.0.0.1:3112"
 
   $code = 0
-  foreach ($size in @(@(1400, 900), @(390, 844))) {
+  foreach ($size in @(@(1400, 900), @(900, 800), @(390, 844))) {
     Write-Output "--- $($size[0])x$($size[1]) ---"
     node scripts\verify-live-sync.mjs $($size[0]) $($size[1])
     if ($LASTEXITCODE -ne 0) { $code = $LASTEXITCODE }
