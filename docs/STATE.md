@@ -17,9 +17,9 @@ keeps it from rotting the way its predecessors did.
 
 <!-- SNAPSHOT:BEGIN — checked by tests/docs-freshness.test.ts -->
 
-- **Tests:** 659 passing, 0 failing, across 53 test files.
+- **Tests:** 660 passing, 0 failing, across 53 test files.
 - **Typecheck:** `tsc --noEmit` clean.
-- **Committed through:** `d9f7799` — docs: the sender is the owner's own domain, and sign-in serves.
+- **Committed through:** `efa3e18` — fix(auth): the code email warns about the door that was actually tried.
 - **Schema:** migrations 1–8.
 - **Working tree:** clean.
 <!-- SNAPSHOT:END -->
