@@ -7,7 +7,7 @@
   "license": "AGPL-3.0-only",
   "description": "An open workspace for your notes, built for people and AI.",
   "engines": {
-    "node": ">=24.0.0"
+    "node": "24.x"
   },
   "scripts": {
     "dev": "node scripts/local.mjs dev",
