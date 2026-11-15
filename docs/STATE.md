@@ -17,9 +17,9 @@ keeps it from rotting the way its predecessors did.
 
 <!-- SNAPSHOT:BEGIN — checked by tests/docs-freshness.test.ts -->
 
-- **Tests:** 654 passing, 0 failing, across 52 test files.
+- **Tests:** 659 passing, 0 failing, across 53 test files.
 - **Typecheck:** `tsc --noEmit` clean.
-- **Committed through:** `d8bf1c7` — feat(auth): the emailed six-digit code is the door, and it opens an account that exists.
+- **Committed through:** `d9f7799` — docs: the sender is the owner's own domain, and sign-in serves.
 - **Schema:** migrations 1–8.
 - **Working tree:** clean.
 <!-- SNAPSHOT:END -->
