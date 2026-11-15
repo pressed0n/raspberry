@@ -12,7 +12,7 @@ import { normalizeEmail } from "./tokens";
  * "not configured", and the deployment refuses to authenticate anyone. That is the
  * only reading of an absent value that cannot accidentally become an open door.
  */
-export type MailBackend = "console" | "http";
+export type MailBackend = "console" | "http" | "smtp";
 
 export type AuthConfig = {
   clientId: string;
@@ -24,6 +24,10 @@ export type AuthConfig = {
   mailFrom: string;
   mailUrl: string;
   mailToken: string;
+  smtpHost: string;
+  smtpPort: number;
+  smtpUser: string;
+  smtpPass: string;
 };
 
 export type Configured<Value> = { ok: true; value: Value } | { ok: false; missing: string[] };
@@ -45,14 +49,27 @@ export function readAuthConfig(): Configured<AuthConfig> {
   const mailFrom = text("RASPBERRY_MAIL_FROM");
   const mailUrl = text("RASPBERRY_MAIL_URL");
   const mailToken = text("RASPBERRY_MAIL_TOKEN");
+  const smtpHost = text("RASPBERRY_SMTP_HOST");
+  const smtpPort = Number(text("RASPBERRY_SMTP_PORT") || "587");
+  const smtpUser = text("RASPBERRY_SMTP_USER");
+  const smtpPass = text("RASPBERRY_SMTP_PASS");
 
   if (!clientId) missing.push("GOOGLE_CLIENT_ID");
   if (!clientSecret) missing.push("GOOGLE_CLIENT_SECRET");
   if (!publicOrigin) missing.push("RASPBERRY_PUBLIC_ORIGIN");
   if (allowedEmails.length === 0) missing.push("RASPBERRY_ALLOWED_EMAILS");
-  if (mailBackend !== "console" && mailBackend !== "http") missing.push("RASPBERRY_MAIL_BACKEND (must be console or http)");
+  if (mailBackend !== "console" && mailBackend !== "http" && mailBackend !== "smtp") missing.push("RASPBERRY_MAIL_BACKEND (must be console, http or smtp)");
   if (!mailFrom) missing.push("RASPBERRY_MAIL_FROM");
   if (mailBackend === "http" && !mailUrl) missing.push("RASPBERRY_MAIL_URL");
+  /* SMTP needs all four. A half-configured server is not "maybe it works": nodemailer will
+     happily try to authenticate with an empty password and the operator gets a login
+     failure instead of a configuration one. */
+  if (mailBackend === "smtp") {
+    if (!smtpHost) missing.push("RASPBERRY_SMTP_HOST");
+    if (!Number.isInteger(smtpPort) || smtpPort <= 0 || smtpPort > 65535) missing.push("RASPBERRY_SMTP_PORT (must be a port number)");
+    if (!smtpUser) missing.push("RASPBERRY_SMTP_USER");
+    if (!smtpPass) missing.push("RASPBERRY_SMTP_PASS");
+  }
 
   if (missing.length) return { ok: false, missing };
   // A plaintext origin would issue a Secure-less cookie and send the OAuth code over
@@ -62,7 +79,7 @@ export function readAuthConfig(): Configured<AuthConfig> {
 
   return {
     ok: true,
-    value: { clientId, clientSecret, publicOrigin, redirectUri: `${publicOrigin}/api/auth/google/callback`, allowedEmails, mailBackend, mailFrom, mailUrl, mailToken },
+    value: { clientId, clientSecret, publicOrigin, redirectUri: `${publicOrigin}/api/auth/google/callback`, allowedEmails, mailBackend, mailFrom, mailUrl, mailToken, smtpHost, smtpPort, smtpUser, smtpPass },
   };
 }
 

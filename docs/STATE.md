@@ -17,11 +17,11 @@ keeps it from rotting the way its predecessors did.
 
 <!-- SNAPSHOT:BEGIN — checked by tests/docs-freshness.test.ts -->
 
-- **Tests:** 625 passing, 0 failing, across 49 test files.
+- **Tests:** 640 passing, 0 failing, across 50 test files.
 - **Typecheck:** `tsc --noEmit` clean.
-- **Committed through:** `4c47d0f` — feat(hosting): Vercel + Neon deployment, and the migration that fills it.
+- **Committed through:** `1b4ef6a` — fix(hosting): pin engines to Node 24.x so Vercel matches CI.
 - **Schema:** migrations 1–7.
-- **Working tree:** clean.
+- **Working tree:** dirty (uncommitted work in progress).
 <!-- SNAPSHOT:END -->
 
 Run it yourself, it takes four seconds:
@@ -1470,7 +1470,13 @@ is not a revival of the VPS plan, and it is why this section exists rather than 
 - **Data:** migrated by `scripts/migrate-to-postgres.ts` — 9,685 rows: 215 pages (21 live, 194
   already in the trash), 3,547 revisions, 5,646 mutation receipts, 78 databases,
   71 properties, 78 views, 19 cells, 28 file rows, 1 user and 1 workspace. Ids are preserved,
-  so `RASPBERRY_OWNER_EMAIL` still adopts the workspace on first sign-in.
+  so `RASPBERRY_OWNER_EMAIL` still adopts the workspace on first sign-in — and it is set to
+  the owner's address, so **only that address can adopt the notes**; the second allow-listed
+  address gets an empty workspace of its own.
+- **Bytes:** migrated by `scripts/migrate-blobs-storage.ts` — the 28 file rows, 36,809,021
+  bytes, into `raspberry-uploads` on Neon Object Storage at `w/<workspace>/<sha256>`. The
+  second run uploaded 0, which is the idempotence claim met rather than asserted. This is the
+  half `migrate-to-postgres.ts` cannot move: bytes were never in the database.
 
 ### What is verified, and what is not
 
@@ -1482,26 +1488,53 @@ and `/api/health` answers `{"status":"degraded"}`. **That refusal is the safe st
 fault**: `servesData()` is false until authentication is configured, so the deployment serves
 nobody rather than everybody.
 
+**Uploads are done, and were proved rather than assumed.** Three facts came out of probing the
+live endpoint before a line of `src/server/storage.ts` was wired in, and each one changed the
+design:
+
+- A **signed** PUT is checked against `x-amz-content-sha256`; a mismatched body is refused with
+  `XAmzContentSHA256Mismatch` and nothing is stored. The ordinary upload path signs the real
+  hash, so the bucket itself enforces content addressing.
+- A **presigned** PUT is refused unless the payload hash is `UNSIGNED-PAYLOAD`. A browser
+  therefore *cannot* be bound to a hash it declares — which is why the direct path lands at a
+  random key under `i/<workspace>/<uuid>` and `FileStore.complete` hashes the object itself.
+  The client's claim about its own bytes is never used.
+- `CopyObject` works, so a verified upload moves to its content address without pulling the
+  bytes back through the function, and no schema change was needed.
+
+Then the whole path ran against the real bucket on a throwaway database: `store()` → signed
+PUT → `serve()` byte-identical → a `bytes=0-9` range returning `206` — `presign()` → a
+browser-shaped PUT (200) → `complete()` → `serve()` byte-identical → the same bytes re-sent on
+a second presigned key returning **the same id** and cleaning up the duplicate object. A
+preflight for the real origin answered `access-control-allow-origin: *`,
+`allow-methods: PUT`, `allow-headers: content-type`, which is the thing that decides whether a
+browser may talk to the bucket at all. `tests/storage.test.ts` pins the canonical request,
+the workspace-scoped keys, and the "the declared size is not the size that is enforced" rule.
+
 **Not yet working, in the order it blocks:**
 
-1. **Sign-in is not configured.** `RASPBERRY_AUTH_MODE=session` needs `GOOGLE_CLIENT_ID`,
-   `GOOGLE_CLIENT_SECRET`, `RASPBERRY_ALLOWED_EMAILS`, and a mail relay
-   (`RASPBERRY_MAIL_BACKEND=http`, `RASPBERRY_MAIL_URL`, `RASPBERRY_MAIL_FROM`). Google
-   sign-in alone does not log anyone in: `completeCallback` issues a one-time code by email,
-   and `readAuthConfig` refuses the whole mode if any of it is missing.
-2. **Uploads still write to local disk.** `uploadsDir()` is `data/uploads`, and on Vercel only
-   `/tmp` is writable — per instance, and wiped on cold start — so the 28 migrated file rows
-   point at bytes that are not on the deployment. The platform also caps a request body at
-   4.5 MB, well under this app's 25 MB image limit, so the fix is object storage **plus**
-   direct-to-storage uploads; raising a limit cannot fix it.
-3. **`pnpm backup` dies on PostgreSQL** by design (`src/server/backup.ts` refuses a non-`file:`
+1. **Sign-in still needs two credentials, and they are the only things missing.**
+   `RASPBERRY_AUTH_MODE=session`, `RASPBERRY_PUBLIC_ORIGIN`, `RASPBERRY_ALLOWED_EMAILS`
+   (two addresses) and `RASPBERRY_OWNER_EMAIL` are set on the project, and the storage
+   variables are too. What is absent is `GOOGLE_CLIENT_ID` / `GOOGLE_CLIENT_SECRET` — an OAuth
+   client whose redirect URI is exactly
+   `https://raspberry-blush.vercel.app/api/auth/google/callback` — and one mail credential.
+   Google sign-in alone does not log anyone in: `completeCallback` issues a **six-digit**
+   one-time code (`randomCode(6)`, ten-minute TTL, single use, attempt-limited) and
+   `readAuthConfig` refuses the whole mode if any piece is missing.
+   A `smtp` backend was added for this (`nodemailer`, pinned) alongside `http` and `console`.
+   One constraint worth knowing before choosing a provider: a shared/sandbox sender such as
+   Resend's `onboarding@resend.dev` only delivers to the account owner's own address, so a
+   **second** recipient needs a verified domain. A Gmail app password over SMTP has no such
+   limit, which is why `smtp` is the cheaper answer for two people.
+2. **`pnpm backup` dies on PostgreSQL** by design (`src/server/backup.ts` refuses a non-`file:`
    URL). Backups become Neon's point-in-time restore, and the habit of a local `pnpm backup`
    stops meaning anything on the hosted copy.
-4. **Rate limiting is per instance** (`src/server/rate-limit.ts`), so it weakens as Vercel
+3. **Rate limiting is per instance** (`src/server/rate-limit.ts`), so it weakens as Vercel
    scales out. `RASPBERRY_TRUST_PROXY` is deliberately **not set**: `callerIp` takes the
    leftmost `X-Forwarded-For` entry, which the caller controls, so leaving it off makes the
    limiter over-limit rather than under-limit.
-5. **`B8`, the deployment runbook, is still unwritten.**
+4. **`B8`, the deployment runbook, is still unwritten.**
 
 ## Explicitly cancelled
 

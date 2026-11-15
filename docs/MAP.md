@@ -46,10 +46,10 @@ not on PATH here, so the invocations above are the ones that work.
 
 | Path | What it is | Read it when |
 |---|---|---|
-| `src/` | The app. Next.js App Router + React 19. 172 files. | Always. |
-| `tests/` | 49 test files + `schema.ts` helper. `tsx --test`. | Before and after any change. |
+| `src/` | The app. Next.js App Router + React 19. 176 files. | Always. |
+| `tests/` | 50 test files + `schema.ts` helper. `tsx --test`. | Before and after any change. |
 | `docs/` | `STATE.md` (truth), `MAP.md` (this), `DECISIONS.md` (why), `TESTING.md` (how to prove), `ARCHIVE/` (history). | First, in that order. |
-| `scripts/` | 63 real tools, documented in §7. | To run or verify something. |
+| `scripts/` | 64 real tools, documented in §7. | To run or verify something. |
 | `scripts/scratch/` | Gitignored one-off probes, incl. the `cdp-*.mjs` browser probes. Evidence, not tooling — no counts here, because the number changes every session. Import `scripts/browser-session.mjs` for new ones. | Only to read a past measurement. |
 | `data/` | Gitignored. `raspberry.sqlite` is **the owner's live database**, plus `uploads/<sha>` blobs, `logs/`, `archive/`, and **`backups/`** — restore points, written by `pnpm backup`. | Never casually. §8. |
 | `artifacts/` | Gitignored test evidence: screenshots and probe logs. **Never a database** — this folder is documented as disposable, so owner data in it is one `rd /s /q` from gone. Was 14.6 GB of leaked Chrome profiles — see §9. | Rarely. |
@@ -358,7 +358,8 @@ disagreeing about where the same place is.
 | `databases.ts` | Database/property/row service |
 | `places.ts` | **The app's first outbound request.** Photon (or `RASPBERRY_PLACES_URL`), a ten-minute `globalThis` cache, `PlaceServiceError`, and `off`. Server-side on purpose: the browser would send the owner's IP, every half-typed address and a user-agent we do not control to a third party |
 | `tiles.ts` | **The second, and it is an image fetch.** One 256px square from `RASPBERRY_TILES_URL` (OpenStreetMap by default, `off` to switch the map off), a byte-budgeted `globalThis` cache with a stale copy served instead of a hole, a content-type check because a 200 carrying an HTML throttle page is not a tile, and **no retry** — a view is four squares and a missing one is a square, not a lost answer |
-| `files.ts` | Upload/download of `data/uploads/<sha>` |
+| `files.ts` | Upload/download. Owns the metadata (name, type, size, the sha256 that addresses the bytes) and the size caps; the bytes themselves are behind `storage.ts`. Two upload doors: a small file streams through the app, and a file over 3.5 MB is PUT straight into the bucket from the browser, because a hosted function refuses a body over 4.5 MB before any handler runs. **Every byte is hashed server-side** — a presigned PUT cannot carry a signed payload hash, so the client's claim is never used |
+| `storage.ts` | **Where the bytes live: `data/uploads/<sha>` or S3-compatible object storage** (Neon Object Storage; any S3 provider). Signature Version 4 written against the spec rather than pulled in as an SDK — the canonical request is pinned by `tests/storage.test.ts`. Keys are `w/<workspace>/<sha256>`, so no two accounts can name the same object. With no bucket configured a *hosted* deployment refuses uploads rather than writing to a `/tmp` that is wiped on the next cold start |
 | `backup.ts` | Database backup |
 | `session.ts`, `rate-limit.ts` | Sessions, request limits |
 | `auth/` | `config`, `google`, `login`, `challenges`, `cookies`, `events`, `limits`, `mail`, `session-store`, `tokens` |
@@ -367,12 +368,12 @@ disagreeing about where the same place is.
 
 ---
 
-## 6. Tests — 48 files, and which one to copy
+## 6. Tests — 50 files, and which one to copy
 
 | Group | Files | Copy this one |
 |---|---|---|
 | Pages and documents | `pages`, `blocks`, `move`, `purge`, `positions`, `page-changes`, `drafts`, `crumbs`, `tabs` | `tests/pages.test.ts` |
-| Service + SQLite integration | `service`, `databases`, `database-columns`, `database-properties`, `database-writes`, `migrations`, `files`, `access` | `tests/database-writes.test.ts` |
+| Service + SQLite integration | `service`, `databases`, `database-columns`, `database-properties`, `database-writes`, `migrations`, `files`, `storage`, `access` | `tests/database-writes.test.ts` |
 | Auth | `auth-login`, `session-store` | `tests/auth-login.test.ts` |
 | Pure helpers | `sidebar-drag`, `sidebar-menu`, `menu-place`, `peek-place`, `palette`, `settings-nav`, `clipboard-image`, `client`, `geo-mercator` | `tests/sidebar-drag.test.ts` |
 | Browser/UI primitives | `frame-anchor`, `media-blocks`, `database-checkbox` | `tests/frame-anchor.test.ts` |
@@ -388,7 +389,7 @@ and use `scripts/browser-session.mjs` so the browser profile cleans itself up.
 
 ---
 
-## 7. Scripts — 56 tools
+## 7. Scripts — 64 tools
 
 | File | Does |
 |---|---|
@@ -396,6 +397,7 @@ and use `scripts/browser-session.mjs` so the browser profile cleans itself up.
 | `scripts/serve.mjs` | Production server (`pnpm start`) |
 | `scripts/backup.ts` | Copies the live database to a timestamped backup (`pnpm backup`). SQLite only — it refuses a `postgres://` URL, where the provider's point-in-time restore is the backup |
 | `scripts/migrate-to-postgres.ts` | Moves an existing `data/raspberry.sqlite` workspace into PostgreSQL: ids and `deleted_at` preserved, column list taken as the intersection of both schemas, `ON CONFLICT DO NOTHING` so a second run is a no-op. The source is opened `readOnly`. `--dry-run` counts without writing; `--url` picks the target, so the same command fills a probe branch before production |
+| `scripts/migrate-blobs-storage.ts` | Moves the **bytes** — the half `migrate-to-postgres.ts` cannot move, because they were never in the database. Reads `files` and copies `data/uploads/<sha>` to `w/<workspace>/<sha>` in the bucket. Content-addressed, so nothing is rewritten; idempotent, so a second run uploads nothing; a blob missing from disk is reported with its id rather than invented. `--dry-run` and `--dir` |
 | `scripts/check-docs.mjs` | The drift gate: STATE snapshot, counts, MAP coverage, root-markdown allowlist, artifacts leak, git facts |
 | `scripts/check-icons.mjs` | Verifies property/icon references resolve |
 | `scripts/gen-palette.mjs` | Regenerates the colour palette data used by `src/lib/palette.ts` |

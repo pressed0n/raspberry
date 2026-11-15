@@ -1387,3 +1387,41 @@ probe caught the difference: `dateB` must narrow to one name, and opening `prop(
 show `Properties` first.
 
 
+
+## Uploads have two doors, because the platform closes one of them
+
+A hosted function refuses a request body over **4.5 MB** at the platform edge. Not a limit the
+app can raise: the request is discarded before a handler exists to read it. This app's own caps
+are 25 MB for an image, 100 MB for audio, 512 MB for video, so most of what it claims to accept
+could never arrive through `POST /api/files` on Vercel.
+
+So above 3.5 MB the browser PUTs the file straight into the bucket with a presigned URL and then
+reports to `/api/files/complete`. The threshold sits below the ceiling on purpose — headers count
+towards it too — and lives in `src/lib/upload-limits.ts` because both halves have to agree.
+
+Three things were measured against the live endpoint before the design was fixed, and each one
+rules out an approach that looks reasonable on paper:
+
+- A **signed** PUT is checked against `x-amz-content-sha256`; a mismatched body is refused with
+  `XAmzContentSHA256Mismatch`. So the server-side path signs the real hash and the bucket itself
+  enforces content addressing.
+- A **presigned** PUT is refused unless the payload hash is `UNSIGNED-PAYLOAD`. That means a
+  browser cannot be bound to a hash it declares, and any design that trusts a client-computed
+  sha256 for deduplication is trusting the one party with a reason to lie. The direct path
+  therefore lands at a random key under `i/<workspace>/<uuid>`, and `complete` reads the object
+  back and hashes it. Slower, and the only version where "content-addressed" is a fact.
+- `CopyObject` works, so a verified upload moves to `w/<workspace>/<sha256>` without a second
+  trip through the function, and no schema change was needed to remember an interim key.
+
+The signature is written against the spec rather than pulled in as `@aws-sdk/client-s3`: it is a
+fixed computation over a method, a path and three headers, so the risk is not "we implemented
+crypto", it is "we got the canonical request wrong", and that is a test rather than a hope. SMTP
+is the opposite case and is a pinned dependency (`nodemailer`) for exactly that reason.
+
+## A hosted deployment with no bucket refuses uploads
+
+`/tmp` on a serverless runtime is per-instance and wiped on cold start, so "write it to disk and
+carry on" produces a file that is a broken image by the next request — a failure that looks like
+a bug in the browser three pages later. `FileStore` throws `storage_not_configured` instead, the
+same way the deployment refuses to serve data when sign-in is unconfigured. A deployment that
+says what it cannot do is worth more than one that half works.

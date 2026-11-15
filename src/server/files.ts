@@ -1,11 +1,16 @@
 import { createHash, randomUUID } from "node:crypto";
-import { createReadStream, createWriteStream } from "node:fs";
-import { mkdir, rename, rm, stat } from "node:fs/promises";
+import { createWriteStream } from "node:fs";
+import { mkdir, rm } from "node:fs/promises";
 import { Readable, Transform } from "node:stream";
 import { pipeline } from "node:stream/promises";
-import { extname, join, resolve } from "node:path";
+import { extname, join } from "node:path";
+import { accessMode } from "./access";
 import type { Database } from "./database";
 import { AppError, type Actor } from "./service";
+import { blobKey, blobs, incomingKey, isIncomingKey, storageConfigured, uploadsDir, type BlobStore } from "./storage";
+import { DIRECT_UPLOAD_THRESHOLD } from "../lib/upload-limits";
+
+export { uploadsDir };
 
 /**
  * Raspberry — uploaded files (B26)
@@ -48,16 +53,23 @@ const TYPES: Record<string, string> = {
 const MB = 1024 * 1024;
 const LIMITS: Record<string, number> = { image: 25 * MB, audio: 100 * MB, video: 512 * MB, other: 100 * MB };
 
+/* How long a browser's direct-upload URL stays usable. Fifteen minutes is long enough
+   for a slow line to push a 40 MB photo and short enough that a leaked URL is not a
+   standing invitation. The key is random and workspace-scoped, so the worst case is a
+   stray object nobody references. */
+const DIRECT_UPLOAD_TTL_SECONDS = 900;
+
+/* Above this size an upload is sent straight to the bucket, because a hosted function
+   refuses a request body over 4.5 MB before the handler is reached. The threshold is
+   shared with the browser so the two halves cannot drift: see `src/lib/upload-limits.ts`. */
+export { DIRECT_UPLOAD_THRESHOLD };
+
 /** Types the browser should display in place rather than download. */
 const INLINE = new Set(["image/", "audio/", "video/"]);
 /** Types that can execute in a document context, so they are sandboxed when served. */
 const SANDBOXED = new Set(["image/svg+xml", "text/plain", "text/markdown", "text/csv"]);
 
 export type StoredFile = { id: string; name: string; mime: string; size: number; url: string };
-
-export function uploadsDir(): string {
-  return resolve(process.env.RASPBERRY_UPLOADS_DIR ?? "data/uploads");
-}
 
 function kindOf(mime: string): string {
   if (mime.startsWith("image/")) return "image";
@@ -108,7 +120,34 @@ function parseRange(header: string | null, total: number): { start: number; end:
 }
 
 export class FileStore {
-  constructor(private readonly database: Database) {}
+  constructor(
+    private readonly database: Database,
+    /* An explicit byte store, used by the tests to hold the direct-upload path to its
+       promises without a bucket. Production never passes one: the backend is decided by
+       configuration, so the same code runs against the disk and against object storage. */
+    private readonly override?: BlobStore,
+  ) {}
+
+  /**
+   * The byte store, with the hosted-mode gate in front of it.
+   *
+   * A hosted deployment with no object storage configured has nowhere durable to put
+   * an upload: `/tmp` is per-instance and wiped on cold start, so the write would
+   * succeed and the file would be a broken image by the next request. Refusing is the
+   * only honest answer — the deployment already refuses to serve data when sign-in is
+   * unconfigured, and this is the same rule applied to bytes.
+   */
+  private storage(): BlobStore {
+    if (this.override) return this.override;
+    if (accessMode() === "session" && !storageConfigured()) {
+      throw new AppError(
+        503,
+        "storage_not_configured",
+        "File storage is not configured on this server. Set RASPBERRY_S3_BUCKET, RASPBERRY_S3_ENDPOINT, AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY.",
+      );
+    }
+    return blobs();
+  }
 
   /**
    * Store a request body. The size cap is checked as bytes arrive, so a hostile
@@ -122,7 +161,8 @@ export class FileStore {
     const body = request.body;
     if (!body) throw new AppError(400, "empty_upload", "No file was sent.");
 
-    const dir = uploadsDir();
+    const store = this.storage();
+    const dir = store.stagingDir();
     await mkdir(dir, { recursive: true });
     const temp = join(dir, `.incoming-${randomUUID()}`);
     const hash = createHash("sha256");
@@ -152,34 +192,130 @@ export class FileStore {
     }
 
     const sha256 = hash.digest("hex");
-    const existing = await this.database.transaction(async (sql) =>
-      (await sql.query("SELECT id, name, mime, size FROM files WHERE workspace_id=$1 AND sha256=$2", [actor.workspaceId, sha256]))[0],
-    );
+    const existing = await this.existing(actor, sha256);
     if (existing) {
       await rm(temp, { force: true });
       return describe(existing);
     }
 
-    const blob = join(dir, sha256);
-    await rename(temp, blob);
-    const id = randomUUID();
+    const key = blobKey(actor.workspaceId, sha256);
+    try {
+      await store.put(key, temp, sha256);
+    } finally {
+      await rm(temp, { force: true });
+    }
+    return this.remember(actor, { id: randomUUID(), sha256, name, mime, size });
+  }
+
+  /** The row for these exact bytes in this workspace, if they are already stored. */
+  private async existing(actor: Actor, sha256: string): Promise<Record<string, unknown> | undefined> {
+    return this.database.transaction(async (sql) =>
+      (await sql.query("SELECT id, name, mime, size FROM files WHERE workspace_id=$1 AND sha256=$2", [actor.workspaceId, sha256]))[0],
+    );
+  }
+
+  /** Record the bytes, settling a race with the unique index rather than failing it. */
+  private async remember(
+    actor: Actor,
+    file: { id: string; sha256: string; name: string; mime: string; size: number },
+  ): Promise<StoredFile> {
     try {
       await this.database.transaction(async (sql) => {
         await sql.query(
           "INSERT INTO files(id, workspace_id, sha256, name, mime, size, created_at) VALUES($1,$2,$3,$4,$5,$6,$7)",
-          [id, actor.workspaceId, sha256, name, mime, size, new Date().toISOString()],
+          [file.id, actor.workspaceId, file.sha256, file.name, file.mime, file.size, new Date().toISOString()],
         );
       });
     } catch (error) {
       // Two uploads of the same bytes can both pass the lookup above; the unique
       // index settles it. The loser is not a failure — it is the same file.
-      const duplicate = await this.database.transaction(async (sql) =>
-        (await sql.query("SELECT id, name, mime, size FROM files WHERE workspace_id=$1 AND sha256=$2", [actor.workspaceId, sha256]))[0],
-      );
+      const duplicate = await this.existing(actor, file.sha256);
       if (!duplicate) throw error;
       return describe(duplicate);
     }
-    return { id, name, mime, size, url: `/api/files/${id}` };
+    return { id: file.id, name: file.name, mime: file.mime, size: file.size, url: `/api/files/${file.id}` };
+  }
+
+  /**
+   * Begin an upload the browser sends straight to the bucket.
+   *
+   * A hosted function refuses a request body over 4.5 MB at the platform edge, before
+   * any handler runs, so a 20 MB photo cannot arrive through `store()` however large
+   * the app's own limit is. The name, the extension and the size are decided here —
+   * the same allowlist and the same caps — and the browser is handed one URL for one
+   * randomly named key inside its own workspace. Nothing about the bytes is trusted:
+   * `complete` hashes them itself.
+   */
+  async presign(actor: Actor, rawName: string, size: number): Promise<{ url: string; key: string; name: string }> {
+    const { name, ext } = cleanName(rawName);
+    const mime = TYPES[ext] ?? "application/octet-stream";
+    const kind = kindOf(mime);
+    const cap = LIMITS[kind];
+    if (!Number.isFinite(size) || size <= 0) throw new AppError(400, "empty_upload", `${name} is empty.`);
+    if (size > cap) throw new AppError(413, "file_too_large", `${name} is larger than the ${Math.round(cap / MB)} MB limit for ${kind} files.`);
+
+    const store = this.storage();
+    const key = incomingKey(actor.workspaceId, randomUUID());
+    const url = store.presignPut(key, DIRECT_UPLOAD_TTL_SECONDS);
+    if (!url) throw new AppError(503, "direct_upload_unavailable", "This server cannot accept a direct upload.");
+    return { url, key, name };
+  }
+
+  /**
+   * Finish a direct upload.
+   *
+   * The object is read back and hashed, because a presigned PUT cannot be bound to a
+   * hash the client declares (the endpoint refuses any payload hash but
+   * `UNSIGNED-PAYLOAD`). So the client's claim is worth nothing here and is never
+   * used: the size cap is enforced against the real byte count, the sha256 is
+   * computed from the real bytes, and only then is the object moved to its
+   * content-addressed key. A duplicate is deleted and the existing row returned —
+   * deduplication by content holds across both upload paths.
+   */
+  async complete(actor: Actor, rawName: string, key: string): Promise<StoredFile> {
+    const { name, ext } = cleanName(rawName);
+    const mime = TYPES[ext] ?? "application/octet-stream";
+    const kind = kindOf(mime);
+    const cap = LIMITS[kind];
+    if (!isIncomingKey(key, actor.workspaceId)) throw new AppError(400, "invalid_upload", "That upload reference is not yours.");
+
+    const store = this.storage();
+    const stream = await store.read(key);
+    if (!stream) throw new AppError(400, "missing_upload", `The upload of ${name} did not arrive. Try again.`);
+
+    const hash = createHash("sha256");
+    let size = 0;
+    for await (const chunk of Readable.fromWeb(stream as Parameters<typeof Readable.fromWeb>[0])) {
+      const bytes = chunk as Buffer;
+      size += bytes.length;
+      if (size > cap) {
+        await store.remove(key);
+        throw new AppError(413, "file_too_large", `${name} is larger than the ${Math.round(cap / MB)} MB limit for ${kind} files.`);
+      }
+      hash.update(bytes);
+    }
+    if (size === 0) {
+      await store.remove(key);
+      throw new AppError(400, "empty_upload", `${name} is empty.`);
+    }
+
+    const sha256 = hash.digest("hex");
+    const known = await this.existing(actor, sha256);
+    if (known) {
+      await store.remove(key);
+      return describe(known);
+    }
+
+    try {
+      await store.copy(key, blobKey(actor.workspaceId, sha256), sha256);
+    } catch (error) {
+      /* The bytes stay at their incoming key rather than being deleted on failure: the
+         upload already happened, and a failed copy is a transient storage problem, not
+         a reason to make the person send a 40 MB file again. */
+      throw error;
+    }
+    await store.remove(key);
+    return this.remember(actor, { id: randomUUID(), sha256, name, mime, size });
   }
 
   async find(actor: Actor, id: string): Promise<Record<string, unknown> | undefined> {
@@ -193,11 +329,11 @@ export class FileStore {
   async serve(actor: Actor, id: string, rangeHeader: string | null, download = false): Promise<Response> {
     const row = await this.find(actor, id);
     if (!row) throw new AppError(404, "not_found", "That file is no longer available.");
-    const path = join(uploadsDir(), String(row.sha256));
-    const info = await stat(path).catch(() => null);
-    if (!info) throw new AppError(404, "not_found", "That file is no longer available.");
+    const store = this.storage();
+    const key = blobKey(actor.workspaceId, String(row.sha256));
+    if (!(await store.head(key))) throw new AppError(404, "not_found", "That file is no longer available.");
 
-    const total = info.size;
+    const total = Number(row.size);
     const mime = String(row.mime);
     const name = String(row.name);
     const range = parseRange(rangeHeader, total);
@@ -222,11 +358,15 @@ export class FileStore {
     if (SANDBOXED.has(mime)) headers.set("Content-Security-Policy", "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'");
 
     if (!range) {
+      const bytes = await store.read(key);
+      if (!bytes) throw new AppError(404, "not_found", "That file is no longer available.");
       headers.set("Content-Length", String(total));
-      return new Response(Readable.toWeb(createReadStream(path)) as ReadableStream, { status: 200, headers });
+      return new Response(bytes, { status: 200, headers });
     }
+    const bytes = await store.read(key, { start: range.start, end: range.end });
+    if (!bytes) throw new AppError(404, "not_found", "That file is no longer available.");
     headers.set("Content-Length", String(range.end - range.start + 1));
     headers.set("Content-Range", `bytes ${range.start}-${range.end}/${total}`);
-    return new Response(Readable.toWeb(createReadStream(path, { start: range.start, end: range.end })) as ReadableStream, { status: 206, headers });
+    return new Response(bytes, { status: 206, headers });
   }
 }
