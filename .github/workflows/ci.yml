@@ -105,7 +105,7 @@ jobs:
         shell: bash
         run: |
           if [ ! -f test-output.log ]; then exit 0; fi
-          grep -E '^(✖|not ok)|AssertionError|Error:|actual:|expected:|at tests' test-output.log | head -10 | while IFS= read -r line; do
+          grep -E '^(✖|not ok)|AssertionError|Error:|actual:|expected:|at tests|^  • ' test-output.log | head -20 | while IFS= read -r line; do
             echo "::error::${line}"
           done
 
@@ -167,7 +167,7 @@ jobs:
         shell: bash
         run: |
           if [ ! -f test-output.log ]; then exit 0; fi
-          grep -E '^(✖|not ok)|AssertionError|Error:|actual:|expected:|at tests' test-output.log | head -10 | while IFS= read -r line; do
+          grep -E '^(✖|not ok)|AssertionError|Error:|actual:|expected:|at tests|^  • ' test-output.log | head -20 | while IFS= read -r line; do
             echo "::error::${line}"
           done
 
