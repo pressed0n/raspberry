@@ -33,3 +33,6 @@ scripts/scratch/
 .tools/
 # Agent harness state — never commit
 .unjess/
+
+.vercel
+.env*

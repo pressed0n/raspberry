@@ -1,0 +1,36 @@
+# What must never leave this machine when a deployment is uploaded.
+#
+# Vercel CLI uploads the working tree, not the commit — so `.gitignore` is not
+# enough on its own. Three things in this repository are uncommitted *on purpose*
+# and would otherwise be shipped to a build server:
+#
+#   data/      the owner's live SQLite database and its uploads
+#   .secrets/  the write-capable deploy key and known_hosts
+#   .tools/    a 100 MB portable Node toolchain used only by the dev laptop
+#
+# `.env*` is excluded because a local .env is the one file that would carry the
+# Neon password into a build. Vercel injects the real values as project
+# environment variables instead.
+data/
+.secrets/
+.tools/
+.unjess/
+artifacts/
+
+.git/
+node_modules/
+.next/
+out/
+
+.env
+.env.*
+!.env.example
+
+*.log
+*.tsbuildinfo
+scripts/scratch/
+
+# Not needed to build or serve; keeps the upload honest about what is code.
+prototype/
+docs/
+tests/

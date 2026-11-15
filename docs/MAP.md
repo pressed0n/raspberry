@@ -49,7 +49,7 @@ not on PATH here, so the invocations above are the ones that work.
 | `src/` | The app. Next.js App Router + React 19. 172 files. | Always. |
 | `tests/` | 49 test files + `schema.ts` helper. `tsx --test`. | Before and after any change. |
 | `docs/` | `STATE.md` (truth), `MAP.md` (this), `DECISIONS.md` (why), `TESTING.md` (how to prove), `ARCHIVE/` (history). | First, in that order. |
-| `scripts/` | 62 real tools, documented in §7. | To run or verify something. |
+| `scripts/` | 63 real tools, documented in §7. | To run or verify something. |
 | `scripts/scratch/` | Gitignored one-off probes, incl. the `cdp-*.mjs` browser probes. Evidence, not tooling — no counts here, because the number changes every session. Import `scripts/browser-session.mjs` for new ones. | Only to read a past measurement. |
 | `data/` | Gitignored. `raspberry.sqlite` is **the owner's live database**, plus `uploads/<sha>` blobs, `logs/`, `archive/`, and **`backups/`** — restore points, written by `pnpm backup`. | Never casually. §8. |
 | `artifacts/` | Gitignored test evidence: screenshots and probe logs. **Never a database** — this folder is documented as disposable, so owner data in it is one `rd /s /q` from gone. Was 14.6 GB of leaked Chrome profiles — see §9. | Rarely. |
@@ -394,7 +394,8 @@ and use `scripts/browser-session.mjs` so the browser profile cleans itself up.
 |---|---|
 | `scripts/local.mjs` | Dev/preview launcher behind `Start-Raspberry.cmd` (`pnpm dev`, `pnpm preview`) |
 | `scripts/serve.mjs` | Production server (`pnpm start`) |
-| `scripts/backup.ts` | Copies the live database to a timestamped backup (`pnpm backup`) |
+| `scripts/backup.ts` | Copies the live database to a timestamped backup (`pnpm backup`). SQLite only — it refuses a `postgres://` URL, where the provider's point-in-time restore is the backup |
+| `scripts/migrate-to-postgres.ts` | Moves an existing `data/raspberry.sqlite` workspace into PostgreSQL: ids and `deleted_at` preserved, column list taken as the intersection of both schemas, `ON CONFLICT DO NOTHING` so a second run is a no-op. The source is opened `readOnly`. `--dry-run` counts without writing; `--url` picks the target, so the same command fills a probe branch before production |
 | `scripts/check-docs.mjs` | The drift gate: STATE snapshot, counts, MAP coverage, root-markdown allowlist, artifacts leak, git facts |
 | `scripts/check-icons.mjs` | Verifies property/icon references resolve |
 | `scripts/gen-palette.mjs` | Regenerates the colour palette data used by `src/lib/palette.ts` |

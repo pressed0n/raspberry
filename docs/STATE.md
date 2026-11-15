@@ -19,9 +19,9 @@ keeps it from rotting the way its predecessors did.
 
 - **Tests:** 625 passing, 0 failing, across 49 test files.
 - **Typecheck:** `tsc --noEmit` clean.
-- **Committed through:** `9b719c2` — feat(database): B44-B55 — checkbox, row open, url, place, files, formula.
+- **Committed through:** `b580ab1` — docs: snapshot at the commit above.
 - **Schema:** migrations 1–7.
-- **Working tree:** clean.
+- **Working tree:** dirty (uncommitted work in progress).
 <!-- SNAPSHOT:END -->
 
 Run it yourself, it takes four seconds:
@@ -1391,12 +1391,18 @@ until Raspberry runs somewhere reachable from other devices. But **most of these
 actually need a server**, and the old `CHECKLIST.md` put all thirteen under "everything
 here waits for an online server", which was wrong and would have kept them buried.
 
-### Genuinely hosting-gated (7)
+### Genuinely hosting-gated (6)
 
 `B17` callback redirect origin (only manifests behind a TLS proxy) · `B6` remote MCP with
 OAuth · `B7` email deliverability (SPF/DKIM/DMARC) · `B8` deployment runbook ·
 `B5` session and account management UI (the service methods exist and are tested; no UI
-reaches them) · `B4` Postgres adapter under the test suite · `B16` invites, multiple users.
+reaches them) · `B16` invites, multiple users.
+
+**`B4` left this list on 15 November 2026.** The PostgreSQL branch of `openDatabase` now runs
+under the entire suite against a real Neon server: 625 of 625, with 139 fixture schemas
+created on that server — which is the difference between "it ran on PostgreSQL" and "it ran
+on SQLite and said nothing". The adapter is no longer unrun code; `tests/schema.ts`'s URL
+seam and the CI `postgres` job are what keep it that way.
 
 ### Parked by instruction, though local-only (6)
 
@@ -1416,7 +1422,9 @@ Two notes worth keeping, because the reasoning has changed since they were parke
 
 ## Known limitations, stated plainly
 
-- One user, one workspace, loopback only. Not reachable from another machine.
+- One user, one workspace. The local copy is loopback only; a hosted copy exists at
+  `https://raspberry-blush.vercel.app` but currently serves nobody, because sign-in is not
+  configured (see "Hosting" above).
 - No live collaboration. Concurrent edits resolve by revision rejection (`409`).
 - Write bodies capped at 1 MB; 2,000 blocks; ten nested block levels.
 - The JSON validator only accepts block types the editor enables, so an unknown block
@@ -1443,10 +1451,64 @@ Two notes worth keeping, because the reasoning has changed since they were parke
   The write path that produced them is now closed by the live-write guard in
   `scripts/browser-session.mjs`.
 
+## Hosting: reopened by the owner, 15 November 2026
+
+The third-party subdomain hosting pilot, the NikDTM hosting plan and the cloud VPS migration
+stay cancelled. **What the owner decided instead is smaller:** the app runs on Vercel and the
+database runs on Neon. That supersedes the "do not resurrect" note for *this shape only* — it
+is not a revival of the VPS plan, and it is why this section exists rather than that one.
+
+### What is deployed
+
+- **App:** `https://raspberry-blush.vercel.app` — project `preston-labs/raspberry`, region
+  `fra1`, Node 24.x, Next 16.4.3, 31 routes. `.vercelignore` exists so `data/`, `.secrets/`
+  and `.tools/` never leave this machine: the CLI uploads the working tree, not the commit.
+- **Database:** Neon project `dawn-waterfall-51324335`, PostgreSQL 18, `aws-eu-central-1`,
+  database `raspberry`. The app uses the **pooled** connection string (every function is a
+  short-lived client); the test suite uses the **direct** one, because a pooler does not pass
+  the `options=-csearch_path` startup parameter that `tests/schema.ts` isolates fixtures with.
+- **Data:** migrated by `scripts/migrate-to-postgres.ts` — 9,685 rows: 215 pages (21 live, 194
+  already in the trash), 3,547 revisions, 5,646 mutation receipts, 78 databases,
+  71 properties, 78 views, 19 cells, 28 file rows, 1 user and 1 workspace. Ids are preserved,
+  so `RASPBERRY_OWNER_EMAIL` still adopts the workspace on first sign-in.
+
+### What is verified, and what is not
+
+Verified, not inferred: a Vercel function opened Neon over TLS through the pooler, ran
+`migrate()` (versions 1–7 recorded), wrote, and read the rows back (`{"status":"ok",
+"database":true}` on a probe deployment); the whole suite passes against that server; and the
+deployed app currently refuses to serve data while unconfigured — `/` answers `local_only`
+and `/api/health` answers `{"status":"degraded"}`. **That refusal is the safe state, not a
+fault**: `servesData()` is false until authentication is configured, so the deployment serves
+nobody rather than everybody.
+
+**Not yet working, in the order it blocks:**
+
+1. **Sign-in is not configured.** `RASPBERRY_AUTH_MODE=session` needs `GOOGLE_CLIENT_ID`,
+   `GOOGLE_CLIENT_SECRET`, `RASPBERRY_ALLOWED_EMAILS`, and a mail relay
+   (`RASPBERRY_MAIL_BACKEND=http`, `RASPBERRY_MAIL_URL`, `RASPBERRY_MAIL_FROM`). Google
+   sign-in alone does not log anyone in: `completeCallback` issues a one-time code by email,
+   and `readAuthConfig` refuses the whole mode if any of it is missing.
+2. **Uploads still write to local disk.** `uploadsDir()` is `data/uploads`, and on Vercel only
+   `/tmp` is writable — per instance, and wiped on cold start — so the 28 migrated file rows
+   point at bytes that are not on the deployment. The platform also caps a request body at
+   4.5 MB, well under this app's 25 MB image limit, so the fix is object storage **plus**
+   direct-to-storage uploads; raising a limit cannot fix it.
+3. **`pnpm backup` dies on PostgreSQL** by design (`src/server/backup.ts` refuses a non-`file:`
+   URL). Backups become Neon's point-in-time restore, and the habit of a local `pnpm backup`
+   stops meaning anything on the hosted copy.
+4. **Rate limiting is per instance** (`src/server/rate-limit.ts`), so it weakens as Vercel
+   scales out. `RASPBERRY_TRUST_PROXY` is deliberately **not set**: `callerIp` takes the
+   leftmost `X-Forwarded-For` entry, which the caller controls, so leaving it off makes the
+   limiter over-limit rather than under-limit.
+5. **`B8`, the deployment runbook, is still unwritten.**
+
 ## Explicitly cancelled
 
 The third-party subdomain hosting pilot, the NikDTM hosting plan, and the cloud VPS
-migration. **Do not resurrect without a new decision from the owner.**
+migration. **Do not resurrect without a new decision from the owner.** That decision was
+taken on 15 November 2026 for a *different* shape — Vercel plus Neon, described above — and
+it does not un-cancel anything in this paragraph.
 
 ## Where the history went
 
