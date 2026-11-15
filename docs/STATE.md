@@ -19,9 +19,9 @@ keeps it from rotting the way its predecessors did.
 
 - **Tests:** 625 passing, 0 failing, across 49 test files.
 - **Typecheck:** `tsc --noEmit` clean.
-- **Committed through:** `b580ab1` — docs: snapshot at the commit above.
+- **Committed through:** `4c47d0f` — feat(hosting): Vercel + Neon deployment, and the migration that fills it.
 - **Schema:** migrations 1–7.
-- **Working tree:** dirty (uncommitted work in progress).
+- **Working tree:** clean.
 <!-- SNAPSHOT:END -->
 
 Run it yourself, it takes four seconds:
