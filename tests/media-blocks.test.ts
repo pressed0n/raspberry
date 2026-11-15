@@ -56,7 +56,7 @@ test("caption is searchable text and empty media is not exported", () => {
 });
 
 test("a page with media saves and reads back through the service", async () => {
-  const db = await openMigrated("file::memory:");
+  const db = await openMigrated();
   const service = new RaspberryService(db);
   const actor = localActor();
   await service.seed();

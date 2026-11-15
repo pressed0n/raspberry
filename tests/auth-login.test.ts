@@ -1,8 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openDatabase, type Database } from "../src/server/database";
-import { migrate } from "../src/server/migrations";
+import { type Database } from "../src/server/database";
 import { AppError } from "../src/server/service";
+import { openMigrated } from "./schema";
 import { beginLogin, completeCallback, completeLogin, resendCode, type CallbackInput } from "../src/server/auth/login";
 import { verifySession } from "../src/server/auth/session-store";
 import { RaspberryService } from "../src/server/service";
@@ -17,9 +17,7 @@ process.env.RASPBERRY_MAIL_FROM = "raspberry@raspberry.test";
 const ALLOWED = "owner@example.com";
 
 async function fixture(): Promise<Database> {
-  const database = await openDatabase("file::memory:");
-  await migrate(database);
-  return database;
+  return openMigrated();
 }
 
 /** A Google stand-in: token exchange, then userinfo. Never touches the network. */

@@ -1,7 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { openDatabase, LOCAL_USER_ID, LOCAL_WORKSPACE_ID, type Database } from "../src/server/database";
-import { migrate } from "../src/server/migrations";
+import { LOCAL_USER_ID, LOCAL_WORKSPACE_ID, type Database } from "../src/server/database";
 import { RaspberryService } from "../src/server/service";
 import {
   SESSION_ABSOLUTE_MS,
@@ -13,10 +12,10 @@ import {
   revokeSession,
   verifySession,
 } from "../src/server/auth/session-store";
+import { openMigrated } from "./schema";
 
 async function fixture(): Promise<Database> {
-  const database = await openDatabase("file::memory:");
-  await migrate(database);
+  const database = await openMigrated();
   await new RaspberryService(database).seed();
   return database;
 }

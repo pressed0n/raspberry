@@ -130,13 +130,15 @@ test("the checker fails, by name, on every kind of drift it claims to catch", ()
    so the checker now tells a shallow clone apart from a broken snapshot instead of
    blaming the docs for the clone's shape. */
 test("the CI job that runs this suite checks out the history the docs check reads", () => {
-  const workflow = readFileSync(join(ROOT, ".github", "workflows", "ci.yml"), "utf8");
-  const start = workflow.indexOf("\n  verify:");
-  const end = workflow.indexOf("\n  build:");
-  assert.ok(start !== -1, "ci.yml has no `verify` job; the suite would never run on a push");
-  assert.ok(end > start, "ci.yml's `verify` job must still sit before `build` so this slice is bounded");
+  const workflow = readFileSync(join(ROOT, ".github", "workflows", "ci.yml"), "utf8").replace(/\r\n/g, "\n");
+  const lines = workflow.split("\n");
+  const start = lines.findIndex((line) => line === "  verify:");
+  assert.notEqual(start, -1, "ci.yml has no `verify` job; the suite would never run on a push");
+  // Bounded by the *next* job rather than by a hard-coded name: bounding this slice with
+  // `build:` meant that adding a job between the two silently widened what it inspected.
+  const next = lines.findIndex((line, index) => index > start && /^ {2}[a-z][a-z0-9-]*:$/.test(line));
+  const job = lines.slice(start, next === -1 ? undefined : next).join("\n");
 
-  const job = workflow.slice(start, end);
   assert.match(job, /actions\/checkout@v\d+/, "the verify job must check the repository out");
   assert.match(
     job,
@@ -146,5 +148,23 @@ test("the CI job that runs this suite checks out the history the docs check read
       "ancestor of HEAD. With no history that question is unanswerable and a correct snapshot " +
       "reads as rewritten history — the exact false red the run on 2833a7c produced. Add " +
       "`with: fetch-depth: 0` to the checkout step in the verify job."
+  );
+});
+
+/* B4's whole problem was that the PostgreSQL adapter existed and had never been executed:
+   `docs/STATE.md` called it "unverified code", and every job ran the suite on
+   `file::memory:`, so nothing could ever disagree. A comment cannot prevent that state from
+   coming back. This can: if the job that points the suite at a real server is deleted or
+   loses its URL, this fails and says exactly which adapter is unrun again. */
+test("some CI job still runs the suite against a real PostgreSQL server", () => {
+  const workflow = readFileSync(join(ROOT, ".github", "workflows", "ci.yml"), "utf8");
+  assert.match(
+    workflow,
+    /RASPBERRY_TEST_DATABASE_URL:\s*postgres(ql)?:\/\//,
+    "No CI job sets RASPBERRY_TEST_DATABASE_URL to a postgres:// URL, so the PostgreSQL branch " +
+      "of openDatabase — the one a hosted deployment uses — is no longer executed anywhere. " +
+      "That is precisely the state B4 was opened to fix, and it is invisible: the suite stays " +
+      "green because it only ever runs on SQLite. Restore the `postgres` job in " +
+      ".github/workflows/ci.yml (service container plus this variable)."
   );
 });

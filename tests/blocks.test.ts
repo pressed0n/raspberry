@@ -19,7 +19,7 @@ test("callout colors migrate recursively and the standard palette survives savin
   const migrated = editorDocument([columns]);
   assert.deepEqual(migrated[0].children[0].children[0].props, { emoji: "💡", backgroundColor: "blue" });
   assert.equal(legacy.props.color, "blue");
-  const db = await openMigrated("file::memory:"), service = new RaspberryService(db), actor = localActor(); await service.seed();
+  const db = await openMigrated(), service = new RaspberryService(db), actor = localActor(); await service.seed();
   try {
     const page = await service.create(actor, { title: "Palette", content: migrated, mutationId: crypto.randomUUID() });
     for (const backgroundColor of ["default", "gray", "brown", "red", "orange", "yellow", "green", "blue", "purple", "pink"]) {
@@ -33,7 +33,7 @@ test("callout colors migrate recursively and the standard palette survives savin
   assert.equal(documentSchema.safeParse([{ ...legacy, props: { emoji: "💡", backgroundColor: "url(https://example.com)" } }]).success, false);
 });
 test("nested callouts, two-to-five columns, tables and dividers survive save, history and Markdown export", async () => {
-  const db = await openMigrated("file::memory:"), service = new RaspberryService(db), actor = localActor(); await service.seed();
+  const db = await openMigrated(), service = new RaspberryService(db), actor = localActor(); await service.seed();
   try {
     const callout = createCallout(); callout.children[0].content = [{ type: "text", text: "Nested thought 🥳", styles: {} }];
     callout.children.push(table(), { id: crypto.randomUUID(), type: "divider", props: {}, children: [] });
@@ -49,7 +49,7 @@ test("nested callouts, two-to-five columns, tables and dividers survive save, hi
   } finally { await db.close(); }
 });
 test("page creation links children once; ordinary page links do not reparent their target", async () => {
-  const db = await openMigrated("file::memory:"), service = new RaspberryService(db), actor = localActor(); await service.seed();
+  const db = await openMigrated(), service = new RaspberryService(db), actor = localActor(); await service.seed();
   try {
     const parent = await service.create(actor, { title: "Parent", mutationId: crypto.randomUUID() });
     const input = { title: "Child", parentId: parent.id, mutationId: crypto.randomUUID() };
@@ -69,7 +69,7 @@ test("page creation links children once; ordinary page links do not reparent the
   } finally { await db.close(); }
 });
 test("migration 2 backfills legacy child-page links without duplicating references or losing text", async () => {
-  const db = await openMigrated("file::memory:"), service = new RaspberryService(db), actor = localActor(); await service.seed();
+  const db = await openMigrated(), service = new RaspberryService(db), actor = localActor(); await service.seed();
   try {
     const parent = await service.create(actor, { title: "Legacy parent", mutationId: crypto.randomUUID() });
     const child = await service.create(actor, { title: "Legacy child", parentId: parent.id, linkInParent: false, mutationId: crypto.randomUUID() });
@@ -80,7 +80,7 @@ test("migration 2 backfills legacy child-page links without duplicating referenc
   } finally { await db.close(); }
 });
 test("page references reject inaccessible targets and remain editable after a target is trashed", async () => {
-  const db = await openMigrated("file::memory:"), service = new RaspberryService(db), actor = localActor(); await service.seed();
+  const db = await openMigrated(), service = new RaspberryService(db), actor = localActor(); await service.seed();
   try {
     const otherWorkspace = crypto.randomUUID(), otherId = crypto.randomUUID();
     await db.transaction(async (sql) => {

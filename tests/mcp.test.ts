@@ -8,7 +8,7 @@ import { RaspberryService, localActor } from "../src/server/service";
 import { emptyDocument, inlineText } from "../src/lib/document";
 
 test("MCP negotiates, is read-only by default, and applies permission checks", async () => {
-  const database = await openMigrated("file::memory:"), service = new RaspberryService(database); await service.seed();
+  const database = await openMigrated(), service = new RaspberryService(database); await service.seed();
   const server = createMcpServer(service, localActor("mcp-test"));
   const client = new Client({ name: "integration-test", version: "1" });
   const [a, b] = InMemoryTransport.createLinkedPair();
@@ -23,7 +23,7 @@ test("MCP negotiates, is read-only by default, and applies permission checks", a
   } finally { await client.close(); await server.close(); await database.close(); }
 });
 test("MCP can create, append, and precisely update blocks through the shared service", async () => {
-  const database = await openMigrated("file::memory:"), service = new RaspberryService(database); await service.seed();
+  const database = await openMigrated(), service = new RaspberryService(database); await service.seed();
   const server = createMcpServer(service, localActor("mcp-test"), true), client = new Client({ name: "integration-test", version: "1" });
   const [a, b] = InMemoryTransport.createLinkedPair();
   const call = async (name: string, args: Record<string, unknown>) => {
@@ -48,7 +48,7 @@ test("MCP can create, append, and precisely update blocks through the shared ser
   } finally { await client.close(); await server.close(); await database.close(); }
 });
 test("MCP lists and paginates children of one page", async () => {
-  const database = await openMigrated("file::memory:"), service = new RaspberryService(database); await service.seed();
+  const database = await openMigrated(), service = new RaspberryService(database); await service.seed();
   const server = createMcpServer(service, localActor("mcp-test"), true), client = new Client({ name: "integration-test", version: "1" });
   const [a, b] = InMemoryTransport.createLinkedPair();
   const call = async (name: string, args: Record<string, unknown>) => {

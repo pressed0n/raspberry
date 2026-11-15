@@ -2,6 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
 import { openMigrated } from "./schema";
+import { columnNames, tableNames } from "./catalog";
 import { DatabaseService } from "../src/server/databases";
 import { RaspberryService, localActor, AppError } from "../src/server/service";
 import { documentSchema, emptyDocument } from "../src/lib/document";
@@ -41,13 +42,12 @@ async function addRow(fixtureValue: Awaited<ReturnType<typeof fixture>>, databas
 
 test("migration 6 creates the four tables a database needs", async () => {
   const { db } = await fixture();
-  const rows = await db.transaction((sql) => sql.query<{ name: string }>("SELECT name FROM sqlite_master WHERE type='table'"));
-  const names = new Set(rows.map((row) => String(row.name)));
+  const names = new Set(await tableNames(db));
   for (const table of ["databases", "database_properties", "database_views", "database_cells"]) {
     assert.ok(names.has(table), `${table} should exist`);
   }
-  const columns = await db.transaction((sql) => sql.query<{ name: string }>("PRAGMA table_info(pages)"));
-  assert.ok(columns.some((column) => String(column.name) === "database_id"), "pages gained database_id");
+  const columns = await columnNames(db, "pages");
+  assert.ok(columns.includes("database_id"), "pages gained database_id");
 });
 
 /* ---------------------------------------------------------------------------

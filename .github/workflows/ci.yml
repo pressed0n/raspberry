@@ -109,6 +109,68 @@ jobs:
             echo "::error::${line}"
           done
 
+  # The suite runs on SQLite unless `RASPBERRY_TEST_DATABASE_URL` says otherwise, so on
+  # every other job the PostgreSQL branch of `openDatabase` — the branch a hosted
+  # deployment actually uses — is never executed. That was the state of B4: the adapter
+  # was written, reviewed, and completely unrun. This job is the difference between
+  # "reads as if it works" and "623 of 623 passed on a real server".
+  #
+  # `tests/schema.ts` gives each fixture its own schema on that server, which is what makes
+  # one shared database behave like the `file::memory:` the suite was written against.
+  postgres:
+    name: Suite on PostgreSQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: raspberry_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      RASPBERRY_TEST_DATABASE_URL: postgres://postgres:postgres@localhost:5432/raspberry_test
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: ${{ env.PNPM_VERSION }}
+
+      - name: Install Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Test
+        shell: bash
+        run: |
+          set -o pipefail
+          pnpm test 2>&1 | tee test-output.log
+
+      - name: Report failing assertions
+        if: failure()
+        shell: bash
+        run: |
+          if [ ! -f test-output.log ]; then exit 0; fi
+          grep -E '^(✖|not ok)|AssertionError|Error:|actual:|expected:|at tests' test-output.log | head -10 | while IFS= read -r line; do
+            echo "::error::${line}"
+          done
+
   build:
     name: Build (${{ matrix.shape }})
     runs-on: ubuntu-latest

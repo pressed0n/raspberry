@@ -1,9 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
-import { openDatabase } from "../src/server/database";
-import { migrate } from "../src/server/migrations";
 import { RaspberryService, localActor, AppError } from "../src/server/service";
+import { openMigrated } from "./schema";
 
 const owner = localActor();
 const mutationId = () => randomUUID();
@@ -11,8 +10,7 @@ const mutationId = () => randomUUID();
 /* Migrated, because `position` arrives in migration 4 rather than in the baseline DDL —
    a fixture that skipped `migrate()` would be testing a schema no running server has. */
 async function fixture() {
-  const db = await openDatabase("file::memory:");
-  await migrate(db);
+  const db = await openMigrated();
   const service = new RaspberryService(db);
   await service.seed();
   return { db, service };
