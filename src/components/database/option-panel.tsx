@@ -555,7 +555,6 @@ export function OptionCell({
         anchor={trigger}
         open={open}
         onClose={close}
-        width={272}
         className="db-option-menu"
       >
         <div className="db-option-search">

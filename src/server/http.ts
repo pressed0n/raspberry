@@ -8,12 +8,16 @@ import { resolveActor } from "./session";
 
 export type ApiContext = { actor: Actor; requestId: string };
 
-export async function api(request: Request, work: (context: ApiContext) => Promise<unknown>) {
+/* `options` is the *tighter* budget for one endpoint, on top of the global one. Only
+   `/api/places/search` uses it today: it is the one route whose request count is driven by
+   a person typing rather than by anything the app decides, so it needs a ceiling of its own
+   that is smaller than the 600/min read bucket every other route shares. */
+export async function api(request: Request, work: (context: ApiContext) => Promise<unknown>, options?: RateLimitOptions) {
   const requestId = randomUUID();
   try {
     const denied = requestAccessError(request.headers, request.method);
     if (denied) throw new AppError(403, accessMode() === "local" ? "local_only" : "access_denied", denied);
-    const limited = rateLimitError(request.headers, request.method);
+    const limited = rateLimitError(request.headers, request.method, Date.now(), options);
     if (limited) throw new AppError(429, "rate_limited", limited);
     const actor = await resolveActor(request);
     const result = await work({ actor, requestId });

@@ -82,8 +82,22 @@ export type StatusGroup = z.infer<typeof statusGroupSchema>;
 
 export const numberFormats = ["number", "separators", "currency", "percent", "duration"] as const;
 export const numberDisplays = ["number", "bar", "ring"] as const;
-export const dateFormats = ["iso", "dmy", "mdy", "long"] as const;
+export const dateFormats = ["full", "short", "mdy", "dmy", "ymd", "relative"] as const;
+export type DateFormatName = (typeof dateFormats)[number];
 export const timeFormats = ["12", "24"] as const;
+
+/**
+ * The two names this vocabulary had before it said what a person calls these formats.
+ * `iso` rendered `2026-10-30` and `long` rendered `30 Oct 2026`; each is read as the member
+ * that now covers the same question, so a config saved before the rename still parses
+ * *and* still names a format — there is no "unknown, therefore default" path that would
+ * silently re-render a column somebody chose. A save writes the canonical name.
+ *
+ * It lives here, beside the enum it maps into, because the server has to accept the old
+ * spelling too: `formatCell` reads this map on the client and `configSchemas.date` reads
+ * it on the way in, and two copies would eventually disagree.
+ */
+export const legacyDateFormats: Record<string, DateFormatName> = { iso: "ymd", long: "full" };
 
 /* ---------------------------------------------------------------------------
    Per-type config. Every type gets its schema now, even the ones built in later
@@ -105,7 +119,11 @@ export const configSchemas = {
     showNumber: z.boolean().default(true),
   }),
   checkbox: emptyConfig,
-  url: emptyConfig,
+  url: z.object({
+    /* Short by default: the owner's report is that `https://www.` is what a link cell has
+       too much of. A column that turns this on shows the address exactly as stored. */
+    fullUrl: z.boolean().default(false),
+  }),
   email: emptyConfig,
   phone: emptyConfig,
   person: z.object({
@@ -131,7 +149,13 @@ export const configSchemas = {
     groups: z.array(statusGroupSchema).default([]),
   }),
   date: z.object({
-    format: z.enum(dateFormats).default("iso"),
+    /* A stored `iso` or `long` is rewritten rather than rejected. A config is the owner's
+       column: refusing to parse it would blank the format of every date column saved
+       before the rename, which is a worse outcome than the one-word migration. */
+    format: z.preprocess(
+      (raw) => (typeof raw === "string" ? legacyDateFormats[raw] ?? raw : raw),
+      z.enum(dateFormats),
+    ).default("full"),
     includeTime: z.boolean().default(false),
     timeFormat: z.enum(timeFormats).default("24"),
   }),

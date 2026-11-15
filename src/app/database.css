@@ -249,7 +249,6 @@
    cell except the zero-wide gutter, whose contents are not part of the grid at all. */
 .db-row + .db-row .db-cell:not(.db-gutter) { border-top: 1px solid var(--hairline); }
 .db-row:hover .db-cell:not(.db-gutter):not(.db-cell-add):not(.db-cell-filler) { background: var(--hover); }
-.db-row-open { cursor: pointer; }
 
 /* ---------------------------------------------------------------------------
    The row gutter: add, hold, tick
@@ -436,11 +435,29 @@
 
 .db-check:focus-visible { outline: 2px solid var(--accent); outline-offset: 1px; }
 
-/* A checkbox that is a *value* sits where every other value in the column sits: one
-   inset from the cell's left edge. In the gutter it is one member of a flex row and the
-   flex row positions it, so this rule names the cell rather than the box. */
-.db-cell > .db-check { margin-left: 10px; }
+/* A checkbox that is a *value* sits where every other value in the column sits: one inset
+   from the cell's left edge, and on the cell's vertical centre.
 
+   It used to be a direct child of the `<td>` with `margin-left: 10px` and nothing else, which
+   is why it was neither. A `<td>` here is `vertical-align: top`, and the tick was an
+   `inline-grid`, so it took part in the cell's line box and sat on the text baseline — 4px
+   above the centre with 12px below it. Worse, an inline-grid's baseline is the *baseline of
+   what is inside it*: empty, that is the bottom edge (so the box floated 15px above the
+   baseline); holding a `✓`, it is the glyph's own baseline, some 11px in. Ticking the box
+   therefore moved it 2.5px down — the same control in two positions, which is what the owner
+   reported.
+
+   A flex row ends that: the tick is a flex item, blockified, and no text baseline can reach
+   it. `height: 100%` is the cell's content box — 31px of a 32px row, because the row's own
+   border is inside that 32 — so the centre is the centre at any row height, and it is the
+   same centre `.db-cell-text`'s 31px line box has. Same shape as `.db-name-cell`, for the
+   same reason: the entry icon beside a page name is not a line of text either. */
+.db-check-cell {
+  display: flex;
+  align-items: center;
+  height: 100%;
+  padding-left: 10px;
+}
 
 /* The row being dragged fades, and the row it will land above grows a line. A drag with
    no drop indicator is a gesture you have to guess the result of. */
@@ -448,9 +465,11 @@
 .db-row.is-drop-over .db-cell:not(.db-gutter):not(.db-cell-add):not(.db-cell-filler) { box-shadow: inset 0 2px 0 var(--accent); }
 .db-row.is-selected .db-cell:not(.db-gutter):not(.db-cell-add):not(.db-cell-filler) { background: var(--hover-strong); }
 
-/* `Open` — a row is a page, and a page that can only be opened by double-clicking the
-   right pixel is a page most people will never open. It sits at the end of the name and
-   takes no clicks while it is invisible. */
+/* `Open` — a row is a page, and the page opens here and nowhere else. A row-wide
+   double-click used to do it too; it had to go, because the second press of a double
+   press inside a cell belongs to the word you are selecting, not to a navigation that
+   throws the edit away. It sits at the end of the name and takes no clicks while it is
+   invisible. */
 .db-open {
   position: absolute;
   right: 4px;
@@ -460,7 +479,8 @@
   padding: 2px 7px;
   border: 1px solid var(--hairline-strong);
   border-radius: 5px;
-  background: var(--surface);
+  /* Opaque, and it has to stay opaque — see the note in `.db-url-open`. */
+  background-color: var(--surface);
   color: var(--text);
   font: 500 var(--fs-micro) / 1.4 var(--font-ui);
   cursor: pointer;
@@ -471,7 +491,7 @@
 
 .db-row:hover .db-open,
 .db-row:focus-within .db-open { opacity: 1; pointer-events: auto; }
-.db-open:hover { background: var(--hover-strong); }
+.db-open:hover { background-image: linear-gradient(var(--hover-strong), var(--hover-strong)); }
 
 /* Selection is ephemeral, so the count is what makes it legible — and it is where a
    bulk action will live when there is one to offer. */
@@ -714,8 +734,11 @@
 
 .db-block-error { border-color: var(--accent-line); }
 
-.db-retry {
-  margin-left: auto;
+/* The small named button: a short verb in a box. Two callers — the failed-state banner's
+   `Retry` and the file panel's `Upload` — and one rule, because a second copy is how two
+   buttons that do the same kind of thing drift into two shapes. It is neither a glyph well
+   (`.db-prop-icon-btn`) nor a menu row: those are icons and commands, this is a word. */
+.db-mini-btn {
   border: 1px solid var(--hairline-strong);
   border-radius: 5px;
   background: var(--raised);
@@ -725,14 +748,19 @@
   cursor: pointer;
 }
 
-.db-retry:hover { background: var(--hover); }
+.db-mini-btn:hover { background: var(--hover); }
+.db-mini-btn:disabled { color: var(--palette-gray-text); cursor: default; }
+
+/* Pushed to the end of the sentence it answers. The layout of the banner, not of the button. */
+.db-block-error .db-mini-btn { margin-left: auto; }
 
 .db-spin { animation: db-spin 1s linear infinite; }
 
 @keyframes db-spin { to { transform: rotate(360deg); } }
 
 @media (prefers-reduced-motion: reduce) {
-  .db-spin { animation: none; }
+  .db-spin,
+  .db-files-spin { animation: none; }
 }
 
 /* ---------------------------------------------------------------------------
@@ -777,6 +805,575 @@
 /* A select is a text field that opens a list; `appearance: none` keeps it from looking
    like a Windows combobox pasted into a table. */
 select.db-cell-input { appearance: none; cursor: pointer; }
+
+/* A URL cell: a field that takes the caret, and a mark that leaves.
+   ---------------------------------------------------------------------------
+   `.db-url-cell` exists for the same reason `.db-name-cell` does — the cell holds two
+   things, so its child is a row rather than the field alone. The mark is a real
+   `<a href>`, and it is revealed by `.db-open`'s rule rather than a copy of it: invisible
+   and taking no clicks at rest, shown when the row is hovered or when the keyboard lands
+   in it. Its background is the surface because it is drawn *over* the tail of a long
+   address — a mark you can read the text through is a mark you cannot see.
+
+   And the surface has to survive the hover. This used to read `background: var(--surface)`
+   with `:hover { background: var(--hover-strong) }`, and `--hover-strong` is 7% white — a
+   *wash*, not a colour. So reaching for the mark replaced its opaque fill with transparency
+   and the address underneath read straight through the very box that was covering it.
+   A tint over a surface is a `background-image` layer; the shorthand is not a second coat of
+   paint, it is a replacement. Same fault, same fix, on `.db-open` above. */
+.db-url-cell {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+
+.db-url-cell .db-cell-input { flex: 1 1 auto; width: auto; min-width: 0; }
+
+.db-url-open {
+  position: absolute;
+  right: 4px;
+  top: 50%;
+  z-index: 1;
+  transform: translateY(-50%);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  padding: 0;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 5px;
+  background-color: var(--surface);
+  color: var(--text);
+  cursor: pointer;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 100ms ease;
+}
+
+.db-row:hover .db-url-open,
+.db-row:focus-within .db-url-open { opacity: 1; pointer-events: auto; }
+
+/* A layer over the surface, not instead of it. */
+.db-url-open:hover { background-image: linear-gradient(var(--hover-strong), var(--hover-strong)); }
+
+/* Read-only: there is no field to put a caret in, so the text is the link. */
+.db-url-text { color: var(--accent); }
+.db-url-text:hover { text-decoration: underline; }
+
+/* A Place cell: the field is a search box, and the answers are a listbox under it.
+   ---------------------------------------------------------------------------
+   The surface is `MenuSurface` — the same 252px box, hairline, radius and shadow as every
+   other dropdown in the app — so nothing below restates a menu. What is new is the *row*:
+   two lines, because a place has a name and a place it lives in, and gluing them into one
+   truncated string is how two different "Springfield"s become one row you cannot tell apart.
+   44px against the menu's 28px command row on purpose: a command list is scanned, a result
+   list is read.
+
+   The `Use "…"` row reuses `.db-option-create`, the tag menu's "create this" row. Same job —
+   the one action in a list that is not a list item — so it must be the same control. */
+.db-place-cell { display: block; }
+
+.db-place-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 8px;
+  border-radius: 5px;
+  cursor: pointer;
+}
+
+/* `--hover-strong` is a 7% wash rather than a colour, and here that is right: a menu row is
+   distinguished *from its neighbours*, never drawn over something it must hide. (The URL
+   cell needed an opaque fill for the opposite reason — see `.db-url-open`.) */
+.db-place-row.is-active { background: var(--hover-strong); }
+
+.db-place-glyph { flex: none; display: inline-flex; color: var(--text-3); }
+.db-place-row.is-active .db-place-glyph { color: var(--text-2); }
+
+/* `min-width: 0` on the text column and an ellipsis on each line: the surface is 252px, an
+   address is longer, and the *second* line is the one that gives way — the name is what the
+   person is looking for, the context is what they check. */
+.db-place-text { display: flex; flex: 1 1 auto; flex-direction: column; gap: 1px; min-width: 0; }
+.db-place-name,
+.db-place-context { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.db-place-name { color: var(--text); font: 400 var(--fs-ui) / 1.25 var(--font-ui); }
+.db-place-context { color: var(--text-3); font: 400 var(--fs-meta) / 1.25 var(--font-ui); }
+
+/* The tick that says "this is what the cell already holds" — the same glyph and weight as
+   the tag menu's, because it is the same sentence. */
+.db-place-check { flex: none; color: var(--text-2); }
+
+/* Every state that is not a result speaks here: typing, searching, nothing found, search
+   off, service unreachable. One paragraph in one place, so those five can never drift into
+   five different shapes. */
+.db-place-note {
+  margin: 0;
+  padding: 6px 8px;
+  color: var(--text-3);
+  font: 400 var(--fs-meta) / 1.4 var(--font-ui);
+}
+
+/* The one row in the list that is not a place — it wears the tag menu's `.db-option-create`,
+   because it is the same job: "the thing I typed is not in this list, keep it anyway". A
+   hairline above it is what stops it reading as a third result; without it, `Use Eiffel`
+   beside two places called Eiffel is three rows that look like three places.
+
+   Two classes deep on purpose: `.db-option-create` sets `border: 0` from further down this
+   sheet, and a single-class rule here would lose to it by source order. */
+.db-place-menu .db-place-use {
+  margin-top: 4px;
+  padding-top: 7px;
+  border-top: 1px solid var(--hairline);
+  border-radius: 0 0 6px 6px;
+}
+
+/* ---------------------------------------------------------------------------
+   The picked-place card — the list, replaced by a map
+   ---------------------------------------------------------------------------
+   The owner's reference: picking a place in Notion replaces the dropdown with a map of it. So
+   the surface keeps its 252px box and its hairlines and swaps its body: address and `×` on one
+   row, the map under it, and the two facts about a place that the cell cannot show (its own
+   name, and whether the point is a door or the street it stands on) under that.
+
+   The map is *sized in the component*, not here: `previewGrid` returns the box it computed the
+   tiles for, and the component writes both. A width in this sheet would be a second opinion
+   that crops four 256px images by however many pixels the two numbers disagree.
+   --------------------------------------------------------------------------- */
+.db-place-card {
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+  padding: 3px 8px 5px;
+}
+
+.db-place-card-head {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  padding-left: 1px;
+}
+
+/* One line, ellipsised, with the whole address in its `title`. The card is 236px of content and
+   a Slovenian address with a postcode is longer than that; wrapping it would put the map below
+   the fold of a surface that opens upward as often as down. */
+.db-place-card-address {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font: 400 var(--fs-ui) / 1.35 var(--font-ui);
+}
+
+/* The bare glyph well, borrowed from the pane head rather than drawn again: a boxed 28px
+   control beside a line of text is the shape this sheet already decided against for `←`. */
+.db-place-card-clear { width: 24px; height: 24px; }
+
+.db-place-map {
+  position: relative;
+  overflow: hidden;
+  border-radius: 6px;
+  /* Shows through a tile that failed and through the sub-pixel gap at a tile's edge, so a hole
+     in the map is a quietly darker square rather than a white flash. */
+  background-color: var(--db-map-backdrop);
+  isolation: isolate;
+}
+
+.db-place-tiles { position: absolute; inset: 0; }
+
+/* Size declared, not inherited: a tile is *positioned*, not laid out, so any rule anywhere that
+   clamps an image's width would crop a 256px square into a smear of the wrong corner of the
+   map. */
+.db-place-tile {
+  position: absolute;
+  width: 256px;
+  height: 256px;
+  max-width: none;
+  pointer-events: none;
+  user-select: none;
+  /* The basemap is drawn for a light page. This is the standard inversion rather than a
+     half-transparent black sheet over the tiles: a wash dims the streets along with the land,
+     and the street is the only thing the map is here to show. `none` in the light theme — see
+     `theme.css`. */
+  filter: var(--db-map-filter);
+}
+
+/* The point itself: a dot centred on the coordinate, because the value *is* a coordinate and a
+   teardrop's tip is where the cartographer's arrow happened to stop. `translate(-50%, -50%)`
+   is what makes "centred" a fact rather than a 1px agreement between two paddings. */
+.db-place-pin {
+  position: absolute;
+  width: 11px;
+  height: 11px;
+  transform: translate(-50%, -50%);
+  border-radius: 50%;
+  background-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--db-map-pin-ring), 0 1px 4px rgb(0 0 0 / 45%);
+  pointer-events: none;
+}
+
+/* A composed address is the *road*, not the door, so it gets a hollow ring of the same size:
+   the same mark would claim a precision the map data does not have. */
+.db-place-pin[data-approx] {
+  width: 15px;
+  height: 15px;
+  background-color: var(--db-map-pin-wash);
+  box-shadow: 0 0 0 1.5px var(--accent), 0 0 0 3px var(--db-map-pin-ring);
+}
+
+/* The corner arrow, wearing the URL cell's promise — but on a light map, so its fill is the
+   card's own surface. `background-color`, never `background`: the shorthand resets the colour
+   to transparent and lets the map read through the button (that was a bug in `.db-open`). */
+.db-place-map-open {
+  position: absolute;
+  right: 6px;
+  bottom: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 5px;
+  background-color: var(--surface);
+  color: var(--text);
+}
+
+.db-place-map-open:hover { background-image: linear-gradient(var(--hover-strong), var(--hover-strong)); }
+
+/* Attribution, because the tiles are OpenStreetMap's and their licence says so. It sits on the
+   picture, so it needs its own contrast: a shadow rather than a chip, which would be a second
+   box competing with the arrow. */
+.db-place-credit {
+  position: absolute;
+  left: 6px;
+  bottom: 5px;
+  font: 400 9px / 1.2 var(--font-ui);
+  letter-spacing: 0.01em;
+  color: var(--db-map-credit);
+  text-decoration: none;
+  text-shadow: 0 0 3px rgb(0 0 0 / 70%), 0 1px 2px rgb(0 0 0 / 55%);
+}
+
+.db-place-credit:hover { text-decoration: underline; }
+
+/* The whole box when there are no tiles: one sentence, centred, and the pin still where it
+   belongs — a map that failed is not a place that was forgotten. */
+.db-place-map-note {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  padding: 0 10px;
+  text-align: center;
+  color: var(--text-3);
+  font: 400 var(--fs-meta) / 1.35 var(--font-ui);
+}
+
+/* The place's own name, and the "on the road, not the door" line. Meta, one line each, and the
+   same voice as the list's `.db-place-context` one level up — they are the same kind of fact. */
+.db-place-card-meta {
+  margin: 0;
+  padding: 0 1px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-3);
+  font: 400 var(--fs-meta) / 1.3 var(--font-ui);
+}
+
+.db-place-cell .db-cell-input::placeholder { color: var(--palette-gray-text); opacity: 0.7; }
+
+/* ---------------------------------------------------------------------------
+   A Files & Media cell
+   ---------------------------------------------------------------------------
+   The cell is a button (`.db-files-trigger`, in the shared cell-as-button block below) and
+   the surface is `MenuSurface` like every other dropdown in the app, so what is new here is
+   the *row* — a 22px tile, a name, a size, a remove — and the drop treatment.
+
+   22px is not decoration: it is the same square the row gutter's controls use, and a cell
+   that is one line of text must not be taller than the row's other cells. A thumbnail is
+   `object-fit: cover` because a portrait photo letterboxed into a square pixel-reads as a
+   smudge, while a cropped one still reads as a photo.
+   --------------------------------------------------------------------------- */
+.db-files-cell { display: block; min-width: 0; }
+
+.db-files-trigger {
+  display: flex;
+  align-items: center;
+  height: 32px;
+  padding: 0 10px;
+  overflow: hidden;
+}
+
+/* While a file is being dragged over the cell. The ring is drawn on the button rather than
+   around the `<td>` because the button *is* the drop target — a ring one level up would
+   claim the gutter and the padding, which the drop does not fill. */
+.db-files-trigger.is-dropping {
+  outline: 2px dashed var(--accent-line);
+  outline-offset: -2px;
+  background-image: linear-gradient(var(--hover-strong), var(--hover-strong));
+}
+
+.db-files-summary {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* The one thing in the cell that clips, so it is the one that carries the ellipsis. `0 1 auto`
+   rather than `1 1 auto`: a single short name must not stretch, or the `+2` beside it would be
+   pushed to the far edge of a wide column. */
+.db-files-first {
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 var(--fs-meta) / 1 var(--font-ui);
+}
+
+a.db-files-link { color: var(--text); text-decoration: none; }
+a.db-files-link:hover { text-decoration: underline; }
+
+/* Tabular figures: `+2` under `+10` under `+2` should not shuffle sideways between rows. */
+.db-files-more {
+  flex: none;
+  color: var(--text-3);
+  font: 400 var(--fs-meta) / 1 var(--font-ui);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The tile, in both the cell and the panel: 22px in a cell, and the panel's rows inherit the
+   same square so the same file looks like the same thing in both places. */
+.db-files-tile {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  overflow: hidden;
+  object-fit: cover;
+  background-color: var(--raised);
+}
+
+/* The extension badge — `PDF`, `MP4`. A bordered square rather than a filled one, because a
+   column of filled squares beside a column of thumbnails is a column of things that look
+   like images and are not. */
+.db-files-badge {
+  border: 1px solid var(--hairline);
+  color: var(--text-3);
+  font: 500 9px / 1 var(--font-ui);
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+}
+
+/* A pending upload's tile: the same square, breathing. It is the one animation here, and it
+   stops entirely under `prefers-reduced-motion` (with `db-spin`). */
+.db-files-spin {
+  border: 1px solid var(--accent-line);
+  border-top-color: transparent;
+  animation: db-spin 1s linear infinite;
+}
+
+.db-files-panel {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-height: 0;
+}
+
+.db-files-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding-right: 1px;
+}
+
+/* The file input is hidden from view and from the tab ring, not from the document: `click()`
+   on a `display: none` input is a browser-dependent trick, and this is the ordinary form. */
+.db-files-picker {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  border: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+
+/* One sentence, in the panel's own voice — the same `.db-place-note` treatment, so an empty
+   file list and an empty result list are not two different kinds of quiet. */
+.db-files-note {
+  margin: 0;
+  padding: 2px 8px 8px;
+  color: var(--text-3);
+  font: 400 var(--fs-meta) / 1.4 var(--font-ui);
+}
+
+.db-files-list { display: flex; flex-direction: column; }
+
+.db-files-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 4px 3px 6px;
+  border-radius: 5px;
+}
+
+.db-files-row:hover { background: var(--hover-strong); }
+.db-files-row.is-pending { color: var(--text-3); }
+
+/* The name is the way to the file — a real `<a>`, so the middle button and ⌘-click work
+   without this component knowing what they are. It is the *text* here and not a mark at the
+   edge (the URL cell's `↗`) because there is no field underneath competing for the press. */
+.db-files-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  text-decoration: none;
+  font: 400 var(--fs-ui) / 1.3 var(--font-ui);
+}
+
+a.db-files-name:hover { text-decoration: underline; }
+
+.db-files-row.is-pending .db-files-name { color: var(--text-3); text-decoration: none; }
+
+.db-files-size {
+  flex: none;
+  color: var(--text-3);
+  font: 400 var(--fs-meta) / 1 var(--font-ui);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The bare glyph well, borrowed from the pane head: a boxed 24px button beside a line of text
+   is the shape this sheet already decided against for the place card's `×`. */
+.db-files-remove { width: 24px; height: 24px; }
+
+/* The save control, in the same well, and *before* the remove: the destructive one stays the
+   last thing in the row so a pointer travelling right on its way off the row meets `×` last. */
+.db-files-download { width: 24px; height: 24px; }
+
+/* A failed upload. The sentence is the server's own — "larger than the 25 MB limit for image
+   files" is a thing a person can act on, "upload failed" is not — so the only styling here is
+   the colour that says it is a failure. */
+.db-files-errors {
+  margin: 2px 0 0;
+  padding: 6px 8px 2px;
+  border-top: 1px solid var(--hairline);
+}
+
+.db-files-error {
+  margin: 0 0 4px;
+  color: var(--danger);
+  font: 400 var(--fs-meta) / 1.35 var(--font-ui);
+}
+
+/* The drop overlay while files are over the panel. Inside the panel, not a portal: it says
+   *where* the files would land, which is the panel they are over. */
+.db-files-drop {
+  position: absolute;
+  inset: -4px;
+  display: grid;
+  place-items: center;
+  border: 2px dashed var(--accent-line);
+  border-radius: 8px;
+  background-color: var(--scrim);
+  color: var(--text);
+  font: 500 var(--fs-meta) / 1 var(--font-ui);
+  pointer-events: none;
+}
+
+/* ---------------------------------------------------------------------------
+   The preview that follows a file
+   ---------------------------------------------------------------------------
+   Portalled to the body, because it hangs *outside* the dropdown — which clips (it is a fixed
+   box with `max-height`) and scrolls. `z-index` above `.db-menu`'s 40 for the same reason: when
+   the peek has to sit over the panel (a narrow screen, or the last row of a long list), it must
+   be the thing on top.
+
+   `pointer-events: none` is load-bearing and not a nicety. A box that appeared beside the row
+   under the pointer would, if it could be hit, take the `mouseleave` and close itself, and
+   reopening it would put it back under the pointer — a blink loop.
+
+   The picture is `object-fit: contain` on the app's canvas colour rather than `cover`: this is
+   the file as it is, not a crop that answers "what does it look like" with a lie about its
+   shape. The 28px caption is the name and the size, because at 268px a long name truncates in
+   the row it belongs to. */
+.db-file-peek {
+  position: fixed;
+  z-index: 44;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 8px;
+  background: var(--raised);
+  box-shadow: 0 16px 36px rgb(0 0 0 / 40%);
+  pointer-events: none;
+}
+
+.db-file-peek-img {
+  display: block;
+  flex: 1 1 auto;
+  width: 100%;
+  min-height: 0;
+  object-fit: contain;
+  background-color: var(--canvas);
+}
+
+.db-file-peek-cap {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  height: 28px;
+  padding: 0 9px;
+  border-top: 1px solid var(--hairline);
+}
+
+.db-file-peek-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text);
+  font: 400 var(--fs-meta) / 1 var(--font-ui);
+}
+
+.db-file-peek-size {
+  flex: none;
+  color: var(--text-3);
+  font: 400 var(--fs-meta) / 1 var(--font-ui);
+  font-variant-numeric: tabular-nums;
+}
+
+/* A reference whose bytes are gone, or a blob the store refuses. One sentence in the picture's
+   place rather than a broken-image glyph, which reads as a rendering bug in our own app. */
+.db-file-peek-note {
+  display: grid;
+  flex: 1 1 auto;
+  place-items: center;
+  margin: 0;
+  padding: 0 14px;
+  text-align: center;
+  color: var(--text-3);
+  font: 400 var(--fs-meta) / 1.4 var(--font-ui);
+}
+
 
 /* `.db-check` is defined once, with the other gutter controls — see the row-gutter
    section. A second copy lived here and won by source order, which is how the checkbox
@@ -863,7 +1460,9 @@ button.db-th-label[aria-expanded="true"] { background: var(--hover-strong); colo
 .db-menu {
   position: fixed;
   z-index: 40;
-  width: 240px;
+  /* No width here. `MenuSurface` writes one inline from its `width` prop, so a rule here
+     is a second opinion that always loses — the menu spent a while laid out at 268px with
+     240px written underneath it. The number lives in `menu.tsx`. */
   max-height: min(420px, 70vh);
   overflow-y: auto;
   padding: 4px;
@@ -893,8 +1492,9 @@ button.db-th-label[aria-expanded="true"] { background: var(--hover-strong); colo
   color: var(--text);
   font: 400 var(--fs-ui) / 1.4 var(--font-ui);
   text-align: left;
-  padding: 6px 8px;
+  padding: 5px 8px;
   cursor: pointer;
+  transition: background-color var(--t-hover) ease;
 }
 
 .db-menu-item:hover,
@@ -1013,8 +1613,10 @@ body.db-resizing * { cursor: col-resize !important; }
 
 /* ---------------------------------------------------------------------------
    The property menu
-   --------------------------------------------------------------------------- */
-.db-prop-menu { width: 252px; }
+   ---------------------------------------------------------------------------
+   Its width is not here. `MenuSurface` writes it inline from the `width` prop, so a rule
+   here would be a third opinion that never wins — the menu was 268px with a 252px rule
+   underneath it saying otherwise. One number, in the component. */
 
 .db-prop-name {
   width: 100%;
@@ -1332,6 +1934,49 @@ body.db-resizing * { cursor: col-resize !important; }
    tokens the block colour panel uses; "default" is the neutral chip and carries a
    hairline instead of a fill, so a tag with no colour is still visibly a tag. */
 
+/* A cell that is a *button* — the box, once.
+   ---------------------------------------------------------------------------
+   Tags, dates and files draw the same control: it fills the cell, carries no chrome of its
+   own, and opens a surface. Two copies of this box already existed; the file column was
+   about to make it three, which is the moment the shared half has to move out rather than
+   be typed again.
+
+   What is left in each column's own rule is the part that genuinely differs — a tag cell
+   wraps its chips and is `min-height`, a date cell is one fixed 32px line, a files cell has
+   a tile in it. Geometry that must be *identical* is here, and only here. */
+.db-tag-trigger,
+.db-date-trigger,
+.db-files-trigger,
+.db-formula-trigger {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: var(--text);
+  font: 400 var(--fs-ui) / 1 var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.db-tag-trigger .db-cell-empty,
+.db-date-trigger .db-cell-empty,
+.db-files-trigger .db-cell-empty,
+.db-formula-trigger .db-cell-empty {
+  padding: 0;
+  line-height: 20px;
+}
+
+/* Focus is drawn *inside* the cell: an outline that grows outward would overlap the column
+   beside it and read as that column's focus. */
+.db-tag-trigger:focus-visible,
+.db-date-trigger:focus-visible,
+.db-files-trigger:focus-visible,
+.db-formula-trigger:focus-visible {
+  outline: 2px solid var(--accent-line);
+  outline-offset: -2px;
+}
+
 .db-tag-cell {
   display: flex;
   align-items: center;
@@ -1344,21 +1989,9 @@ body.db-resizing * { cursor: col-resize !important; }
   flex-wrap: wrap;
   align-items: center;
   gap: 4px;
-  width: 100%;
-  min-width: 0;
   min-height: 32px;
   padding: 4px 10px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--text);
-  font: 400 var(--fs-ui) / 1 var(--font-ui);
-  text-align: left;
-  cursor: pointer;
 }
-
-.db-tag-trigger .db-cell-empty { padding: 0; line-height: 20px; }
-.db-tag-trigger:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
 
 .db-tag {
   display: inline-flex;
@@ -1665,15 +2298,16 @@ body.db-resizing * { cursor: col-resize !important; }
 /* A pane head is one row: the way back, then the name of where you are. It was inheriting
    *nothing* — a block parent with an inline-flex button and a span, so the two lined up on
    whatever baseline the whitespace between them produced. Same padding as `.db-prop-head`,
-   so swapping the menu's body for this pane does not shift the head by a pixel. */
-.db-groups-head {
+   so swapping the menu's body for this pane does not shift the head by a pixel. One rule for
+   both panes (`MenuPaneHead` in `menu.tsx` is their only implementation). */
+.db-pane-head {
   display: flex;
   align-items: center;
   gap: 2px;
   padding: 2px 2px 4px;
 }
 
-.db-groups-title {
+.db-pane-title {
   color: var(--text);
   font: 500 var(--fs-ui) / 1.4 var(--font-ui);
 }
@@ -1801,21 +2435,9 @@ body.db-resizing * { cursor: col-resize !important; }
   display: flex;
   align-items: center;
   gap: 6px;
-  width: 100%;
-  min-width: 0;
   height: 32px;
   padding: 0 10px;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  color: var(--text);
-  font: 400 var(--fs-ui) / 1 var(--font-ui);
-  text-align: left;
-  cursor: pointer;
 }
-
-.db-date-trigger .db-cell-empty { padding: 0; line-height: 20px; }
-.db-date-trigger:focus-visible { outline: 2px solid var(--accent-line); outline-offset: -2px; }
 
 /* The one box in the trigger that clips, so it is the one that must leave room for a
    descender — the same trap `.db-tag-name` documents at length, and the one
@@ -2026,3 +2648,479 @@ body.db-resizing * { cursor: col-resize !important; }
    above the grid, and a control that shoves the thing under the pointer is worse than one
    that shuttles the footer. */
 .db-date-panel .db-menu-item { margin-top: 1px; }
+
+/* ---------------------------------------------------------------------------
+   The formula editor
+   ---------------------------------------------------------------------------
+   A 620px dialog in four bands: the field, the preview, the list, the detail. It is a
+   menu surface — the same box, the same anchoring, the same outside-press dismissal as
+   every other dropdown — stretched to a size that can hold a language.
+
+   The field is the one piece of real machinery here: two layers with *identical*
+   metrics, a painted `<pre>` underneath and a transparent `<textarea>` on top. Every
+   number below that they share (font, size, line-height, padding, wrapping) is load
+   bearing: one of them drifting by a pixel puts the caret a letter away from the word it
+   is in, which is worse than no colour at all.
+   --------------------------------------------------------------------------- */
+.db-formula-trigger {
+  display: block;
+  height: 32px;
+  padding: 0 10px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-formula-value { color: var(--text); }
+.db-formula-value.is-error { color: var(--palette-red-text); }
+.db-formula-read { display: block; padding: 0 10px; line-height: 32px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+.db-fx {
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  overflow: hidden;
+  /* `MenuSurface` writes a fixed width inline; on a phone that width has to fold, and a
+     clamped box with the computed `left` at the gutter still fits. */
+  max-width: calc(100vw - 16px);
+  background: var(--raised);
+}
+
+.db-fx-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 8px 0 16px;
+  height: 46px;
+  flex: 0 0 auto;
+}
+
+.db-fx-title {
+  margin: 0;
+  font: 600 var(--fs-ui) / 1 var(--font-ui);
+  color: var(--text);
+}
+
+.db-fx-help-btn {
+  margin-left: 2px;
+  width: 18px;
+  height: 18px;
+  display: grid;
+  place-items: center;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 50%;
+  background: transparent;
+  color: var(--text-3);
+  font: 600 10px / 1 var(--font-ui);
+  cursor: pointer;
+}
+
+.db-fx-help-btn:hover { color: var(--text); border-color: var(--text-3); }
+.db-fx-close { margin-left: auto; }
+
+.db-fx-help {
+  margin: 0 16px 8px;
+  padding: 10px 12px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+  font: 400 var(--fs-meta) / 1.55 var(--font-ui);
+  color: var(--text-2);
+}
+
+.db-fx-help p { margin: 0 0 6px; color: var(--text); }
+.db-fx-help ul { margin: 0; padding-left: 16px; }
+.db-fx-help li + li { margin-top: 3px; }
+.db-fx-help code { font: 400 11.5px var(--font-mono); color: var(--palette-blue-text); }
+
+/* The field. Two layers, one geometry. */
+.db-fx-field {
+  position: relative;
+  flex: 0 0 auto;
+  height: 84px;
+  margin: 0 16px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: var(--radius-sm);
+  background: var(--sunken);
+}
+
+.db-fx-field:focus-within { border-color: var(--accent-line); }
+
+.db-fx-code,
+.db-fx-input {
+  position: absolute;
+  inset: 0;
+  margin: 0;
+  padding: 9px 11px;
+  border: 0;
+  font: 400 13px / 1.6 var(--font-mono);
+  letter-spacing: 0;
+  tab-size: 2;
+  white-space: pre-wrap;
+  overflow-wrap: break-word;
+  word-break: normal;
+}
+
+.db-fx-code {
+  overflow: hidden;
+  pointer-events: none;
+  color: var(--text);
+}
+
+.db-fx-input {
+  display: block;
+  width: 100%;
+  height: 100%;
+  resize: none;
+  background: transparent;
+  color: transparent;
+  caret-color: var(--text);
+  outline: none;
+  overflow-y: auto;
+}
+
+.db-fx-input::placeholder { color: var(--text-3); }
+.db-fx-input::selection { background: var(--accent-soft); color: transparent; }
+
+/* One colour per kind, and a bare name is red because a bare name is nearly always the
+   mistake — `Price + 1` instead of `prop("Price") + 1`. */
+.db-fx-t-property { color: var(--palette-blue-text); }
+.db-fx-t-function { color: var(--palette-purple-text); }
+.db-fx-t-string { color: var(--palette-green-text); }
+.db-fx-t-number { color: var(--palette-orange-text); }
+.db-fx-t-literal { color: var(--palette-yellow-text); }
+.db-fx-t-operator { color: var(--text-3); }
+.db-fx-t-punctuation { color: var(--text-3); }
+.db-fx-t-name { color: var(--palette-red-text); }
+.db-fx-t-plain { color: var(--text); }
+
+.db-fx-status {
+  flex: 0 0 auto;
+  min-height: 28px;
+  padding: 5px 17px 7px;
+}
+
+.db-fx-hint,
+.db-fx-error {
+  margin: 0;
+  font: 400 var(--fs-micro) / 1.4 var(--font-ui);
+  color: var(--text-3);
+}
+
+.db-fx-error { color: var(--palette-red-text); }
+
+.db-fx-preview {
+  flex: 0 0 auto;
+  margin: 0 16px 10px;
+  padding: 7px 10px 8px;
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+}
+
+.db-fx-preview-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.db-fx-label { font: 400 var(--fs-micro) / 1 var(--font-ui); color: var(--text-3); }
+
+.db-fx-row-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  max-width: 190px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text);
+  font: 500 var(--fs-meta) / 1 var(--font-ui);
+  cursor: pointer;
+}
+
+.db-fx-row-btn:hover { background: var(--hover); }
+.db-fx-row-name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.db-fx-spacer { flex: 1 1 auto; }
+
+.db-fx-switch {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+  font: 400 var(--fs-meta) / 1 var(--font-ui);
+  cursor: pointer;
+}
+
+.db-fx-switch.is-on { color: var(--text); }
+
+.db-fx-switch-track {
+  width: 26px;
+  height: 15px;
+  padding: 2px;
+  display: block;
+  border-radius: 999px;
+  background: var(--hairline-strong);
+  transition: background 120ms ease;
+}
+
+.db-fx-switch.is-on .db-fx-switch-track { background: var(--accent); }
+
+.db-fx-switch-knob {
+  display: block;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  background: var(--raised);
+  box-shadow: var(--shadow-sm);
+  transition: transform 120ms ease;
+}
+
+.db-fx-switch.is-on .db-fx-switch-knob { transform: translateX(11px); }
+
+.db-fx-output {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--hairline);
+}
+
+.db-fx-value {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 var(--fs-ui) / 1.35 var(--font-ui);
+  color: var(--text);
+}
+
+.db-fx-value.is-empty { color: var(--text-3); }
+
+.db-fx-type {
+  flex: 0 0 auto;
+  padding: 1px 6px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 999px;
+  font: 400 var(--fs-micro) / 1.6 var(--font-ui);
+  color: var(--text-3);
+}
+
+.db-fx-body {
+  display: grid;
+  grid-template-columns: 208px minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 0;
+  border-top: 1px solid var(--hairline);
+}
+
+/* Debug mode is one pane, not two. Without this the trace lands in the *first* track and
+   is 208px wide, which is how it shipped for an hour — the strip looked like a column of
+   clipped words rather than a tree. */
+.db-fx-body.is-debug { grid-template-columns: minmax(0, 1fr); }
+
+.db-fx-nav,
+.db-fx-detail,
+.db-fx-trace {
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.db-fx-nav { padding: 4px 4px 10px; border-right: 1px solid var(--hairline); }
+
+.db-fx-section + .db-fx-section { margin-top: 2px; }
+
+.db-fx-section-title {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  margin: 0;
+  padding: 8px 8px 4px;
+  background: var(--raised);
+  font: 600 var(--fs-micro) / 1 var(--font-ui);
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+
+.db-fx-entry {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  width: 100%;
+  height: 26px;
+  padding: 0 8px;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text);
+  font: 400 var(--fs-ui) / 1 var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.db-fx-entry.is-active { background: var(--hover-strong); }
+
+.db-fx-entry-icon {
+  display: grid;
+  place-items: center;
+  width: 14px;
+  flex: 0 0 14px;
+  color: var(--text-3);
+}
+
+.db-fx-entry-glyph { font: 500 11px var(--font-mono); }
+
+.db-fx-entry-label {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.db-fx-entry-parens { color: var(--text-3); }
+
+.db-fx-detail { padding: 10px 14px 16px; }
+
+.db-fx-detail-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.db-fx-signature { font: 500 12.5px var(--font-mono); color: var(--text); }
+
+.db-fx-kind {
+  padding: 1px 6px;
+  border: 1px solid var(--hairline-strong);
+  border-radius: 999px;
+  font: 400 var(--fs-micro) / 1.5 var(--font-ui);
+  color: var(--text-3);
+}
+
+.db-fx-summary {
+  margin: 6px 0 10px;
+  font: 400 var(--fs-meta) / 1.55 var(--font-ui);
+  color: var(--text-2);
+}
+
+.db-fx-examples { display: grid; gap: 6px; }
+
+.db-fx-example {
+  border: 1px solid var(--hairline);
+  border-radius: var(--radius-sm);
+  background: var(--surface);
+  padding: 6px 8px;
+}
+
+.db-fx-example-code {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font: 400 12px var(--font-mono);
+  color: var(--text);
+}
+
+.db-fx-example-code code { flex: 1 1 auto; min-width: 0; overflow-wrap: anywhere; }
+
+.db-fx-copy {
+  flex: 0 0 auto;
+  display: grid;
+  place-items: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+
+.db-fx-copy:hover { background: var(--hover-strong); color: var(--text); }
+
+.db-fx-example-result {
+  margin: 4px 0 0;
+  font: 400 var(--fs-meta) / 1.4 var(--font-ui);
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.db-fx-example-result.is-error { color: var(--palette-red-text); }
+
+.db-fx-empty {
+  margin: 12px;
+  font: 400 var(--fs-meta) / 1.5 var(--font-ui);
+  color: var(--text-3);
+}
+
+/* Debug mode: what every part of the formula produced, leaves first. */
+.db-fx-trace { padding: 8px 10px 14px; display: grid; gap: 2px; align-content: start; }
+
+.db-fx-trace-row {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 3px 6px;
+  border-radius: 4px;
+}
+
+.db-fx-trace-row:nth-child(odd) { background: var(--sunken); }
+
+.db-fx-trace-code {
+  flex: 1 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 11.5px var(--font-mono);
+  color: var(--text-2);
+}
+
+/* The value is the point of the row, so it keeps its width and the code ellipsises: a
+   truncated `"Price"` in the label is still recognisable, a truncated value is not. */
+.db-fx-trace-value {
+  flex: 0 1 auto;
+  max-width: 46%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font: 400 11.5px var(--font-mono);
+  color: var(--text);
+}
+
+.db-fx-trace-value.is-error { color: var(--palette-red-text); }
+
+.db-fx-trace-type {
+  flex: 0 0 auto;
+  min-width: 56px;
+  text-align: right;
+  font: 400 var(--fs-micro) / 1 var(--font-ui);
+  color: var(--text-3);
+}
+
+@media (max-width: 620px) {
+  /* One column on a phone: the list is the thing that gets used, the detail is the thing
+     that gets read — so the list keeps two thirds of the height and both scroll. */
+  .db-fx-body {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-rows: minmax(0, 3fr) minmax(0, 2fr);
+  }
+
+  .db-fx-nav { border-right: 0; border-bottom: 1px solid var(--hairline); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .db-fx-switch-track,
+  .db-fx-switch-knob { transition: none; }
+}
+

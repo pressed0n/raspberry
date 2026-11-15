@@ -146,6 +146,14 @@ async function typeClock(handle, text) {
   await sleep(400);
 }
 
+/* The names the column uses, spelled out, so a cell's text can be predicted without asking
+   the app to tell us what it thinks it drew. */
+const MONTHS = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+const fullOf = (day) => `${MONTHS[Number(day.slice(5, 7)) - 1]} ${Number(day.slice(8, 10))}, ${day.slice(0, 4)}`;
+
 try {
   await b.waitFor("!!document.querySelector('.db-date-trigger')", { label: "the table" });
 
@@ -157,7 +165,7 @@ try {
   b.check("no picker is open before anything is pressed", (await surfaces()) === 0, `surfaces=${await surfaces()}`);
   b.check(
     "a stored date reads in the column's configured format",
-    (await cellText("Seeded")) === "30 Oct 2026",
+    (await cellText("Seeded")) === "October 30, 2026",
     await cellText("Seeded"),
   );
   b.check("an empty cell says so, and is a button", (await cellText("Single")) === "Empty", await cellText("Single"));
@@ -187,8 +195,8 @@ try {
   );
   b.check(
     "and the cell reads it back in the column's format",
-    (await cellText("Single")) === new Date(`${day}T00:00:00`).toLocaleDateString("en-GB", { day: "numeric", month: "short", year: "numeric" }).replace(",", ""),
-    await cellText("Single"),
+    (await cellText("Single")) === fullOf(day),
+    `${await cellText("Single")} (expected${fullOf(day)})`,
   );
 
   /* The picker stays open: every other cell in this table saves as you go, and a picker
@@ -316,33 +324,36 @@ try {
   /* ---------------------------------------------------------------------------
      7. The column's own settings: Date format, and the format is a *reading*.
      --------------------------------------------------------------------------- */
-  const header = await b.evaluate(`(() => {
-    const labels = [...document.querySelectorAll('.db-th')]
-      .filter((node) => node.querySelector('.db-th-label'));
-    const column = labels.find((node) => node.textContent.trim().startsWith("When"));
-    const label = column?.querySelector('.db-th-label');
-    if (!label) return null;
-    const r = label.getBoundingClientRect();
-    return { x: Math.round(r.left + 20), y: Math.round(r.top + r.height / 2), reachable: true };
-  })()`);
-  await clickAt(header, "the When column header");
-  await b.waitFor("document.querySelectorAll('[data-db-popover]').length === 1", { label: "the property menu" });
+  /* Recomputed before every press. A header coordinate is only true for the scroll position
+     it was taken in, and opening a date cell scrolls the table to reach it. */
+  const pressHeader = async () => {
+    await clickAt(await b.evaluate(`(() => {
+      const column = [...document.querySelectorAll('.db-th')]
+        .find((node) => node.querySelector('.db-th-label')?.textContent.trim().startsWith("When"));
+      const label = column?.querySelector('.db-th-label');
+      if (!label) return null;
+      label.scrollIntoView({ block: "nearest", inline: "nearest" });
+      const r = label.getBoundingClientRect();
+      const x = Math.round(r.left + 20), y = Math.round(r.top + r.height / 2);
+      const hit = document.elementFromPoint(x, y);
+      return { x, y, reachable: !!hit && (hit === label || label.contains(hit)) };
+    })()`), "the When column header");
+    await b.waitFor("document.querySelectorAll('[data-db-popover]').length === 1", { label: "the property menu" });
+  };
+  await pressHeader();
 
   const menuLabels = await b.evaluate(`[...document.querySelectorAll('[data-db-popover] .db-menu-label')].map((node) => node.textContent.trim())`);
   b.check("the header offers Date format", menuLabels.includes("Date format"), menuLabels.join(" | "));
   b.check("the header offers Include time", menuLabels.includes("Include time"), menuLabels.join(" | "));
+  const formatRow = () => b.evaluate(`(() => {
+    const row = [...document.querySelectorAll('[data-db-popover] .db-menu-item')]
+      .find((node) => node.querySelector('.db-menu-label')?.textContent.trim() === 'Date format');
+    return row?.querySelector('.db-menu-value')?.textContent.trim() ?? null;
+  })()`);
   b.check(
-    "the Date format row carries the sample this column currently renders",
-    (await b.evaluate(`(() => {
-      const row = [...document.querySelectorAll('[data-db-popover] .db-menu-item')]
-        .find((node) => node.querySelector('.db-menu-label')?.textContent.trim() === 'Date format');
-      return row?.querySelector('.db-menu-value')?.textContent.trim() ?? null;
-    })()`)) === "30 Oct 2026",
-    await b.evaluate(`(() => {
-      const row = [...document.querySelectorAll('[data-db-popover] .db-menu-item')]
-        .find((node) => node.querySelector('.db-menu-label')?.textContent.trim() === 'Date format');
-      return row?.querySelector('.db-menu-value')?.textContent.trim() ?? null;
-    })()`),
+    "the Date format row names the format this column is using",
+    (await formatRow()) === "Full date",
+    await formatRow(),
   );
   b.check(
     "Include time is ticked, because the picker just turned it on",
@@ -355,30 +366,39 @@ try {
   );
   await b.shot(`dates-menu-${width}`);
 
-  /* Reach the third row of the submenu the way a hand does: right into the surface, then
-     down inside it. A straight line cuts the corner over the parent's own rows, where "the
-     pointer went to a sibling" is exactly what the menu reads it as. */
-  const trigger = await centre(".db-menu-label", "Date format");
-  await b.move(trigger.x, trigger.y);
-  await b.waitFor("document.querySelectorAll('[data-db-popover]').length >= 2", { label: "the Date format submenu" });
-  const geometry = await b.evaluate(`(() => {
-    const all = [...document.querySelectorAll('[data-db-popover]')];
-    const sub = all[all.length - 1].getBoundingClientRect();
-    const parent = all[all.length - 2].getBoundingClientRect();
-    const toRight = sub.left >= parent.right;
-    return { entryX: Math.round(toRight ? sub.left + 12 : sub.right - 12), top: Math.round(sub.top + 6) };
-  })()`);
-  const target = await centre(".db-menu-label", "Day/month/year");
-  if (!target) throw new Error("the Date format submenu has no Day/month/year row");
-  for (let step = 1; step <= 3; step += 1) {
-    await b.move(geometry.entryX, Math.round(geometry.top + (target.y - geometry.top) * (step / 3)));
-    await sleep(40);
+  /* The menu was opened to read it; `pickFormat` opens it again, so it starts from closed. */
+  await b.key("Escape", { keyCode: 27 });
+  await b.waitFor("document.querySelectorAll('[data-db-popover]').length === 0", { timeoutMs: 3000, label: "close before choosing" });
+
+  /* Reach a row of the submenu the way a hand does: right into the surface, then down inside
+     it. A straight line cuts the corner over the parent's own rows, where "the pointer went to
+     a sibling" is exactly what the menu reads it as. */
+  async function pickFormat(label) {
+    await pressHeader();
+    const trigger = await centre(".db-menu-label", "Date format");
+    await b.move(trigger.x, trigger.y);
+    await b.waitFor("document.querySelectorAll('[data-db-popover]').length >= 2", { label: "the Date format submenu" });
+    const geometry = await b.evaluate(`(() => {
+      const all = [...document.querySelectorAll('[data-db-popover]')];
+      const sub = all[all.length - 1].getBoundingClientRect();
+      const parent = all[all.length - 2].getBoundingClientRect();
+      const toRight = sub.left >= parent.right;
+      return { entryX: Math.round(toRight ? sub.left + 12 : sub.right - 12), top: Math.round(sub.top + 6) };
+    })()`);
+    const target = await centre(".db-menu-label", label);
+    if (!target) throw new Error(`the Date format submenu has no "${label}" row`);
+    for (let step = 1; step <= 3; step += 1) {
+      await b.move(geometry.entryX, Math.round(geometry.top + (target.y - geometry.top) * (step / 3)));
+      await sleep(40);
+    }
+    await b.move(target.x, target.y);
+    await sleep(80);
+    b.check(`the submenu survived the crossing to "${label}"`, (await surfaces()) >= 2, `surfaces=${await surfaces()}`);
+    await b.mouse(target.x, target.y);
+    await b.waitFor("document.querySelectorAll('[data-db-popover]').length === 0", { timeoutMs: 4000, label: `the menu closes after choosing ${label}` });
   }
-  await b.move(target.x, target.y);
-  await sleep(80);
-  b.check("the submenu survived the crossing", (await surfaces()) >= 2, `surfaces=${await surfaces()}`);
-  await b.mouse(target.x, target.y);
-  await b.waitFor("document.querySelectorAll('[data-db-popover]').length === 0", { timeoutMs: 4000, label: "the menu closes after choosing" });
+
+  await pickFormat("Day/Month/Year");
   for (let i = 0; i < 20; i += 1) {
     if ((await stored()).config.format === "dmy") break;
     await sleep(150);
@@ -395,7 +415,296 @@ try {
   );
 
   /* ---------------------------------------------------------------------------
-     8. It fits, and nothing the probe did was refused.
+     8. Every format the menu offers is a reading.
+     ---------------------------------------------------------------------------
+     Six rows, six stored values, six rendered strings. `Relative` is asserted on the row
+     the probe set to *today* in section 2, because it is the only one of the six whose
+     answer depends on when you look: pinning it to a fixed 2026 date would make this probe
+     start failing by itself on a date nobody chose. */
+  const FORMATS = [
+    ["Full date", "full", "Seeded", "October 30, 2026"],
+    ["Short date", "short", "Seeded", "Oct 30"],
+    ["Month/Day/Year", "mdy", "Seeded", "10/30/2026"],
+    ["Day/Month/Year", "dmy", "Seeded", "30/10/2026"],
+    ["Year/Month/Day", "ymd", "Seeded", "2026/10/30"],
+    ["Relative", "relative", "Single", "Today"],
+  ];
+  for (const [label, name, row, expected] of FORMATS) {
+    await pickFormat(label);
+    for (let i = 0; i < 20; i += 1) {
+      if ((await stored()).config.format === name) break;
+      await sleep(120);
+    }
+    b.check(`"${label}" is stored as ${name}`, (await stored()).config.format === name, JSON.stringify((await stored()).config));
+    b.check(`and the column reads "${expected}"`, (await cellText(row)) === expected, `${row}: ${await cellText(row)}`);
+  }
+
+  /* ---------------------------------------------------------------------------
+     9. The picker's own `Date format` — a fly-out beside it, writing the *column*.
+     ---------------------------------------------------------------------------
+     Two asks, in the owner's order. First: *"Date format should also be accessible in the
+     dropdown where you're selecting the date ... it would change the format for the whole
+     column."* Then, when it shipped as a body swap: *"those options should open next to the
+     dropdown."*
+
+     So the claims are layered. The row is in the cell's picker; pressing it opens the app's one
+     submenu *beside* the picker rather than over it, which is what leaves the calendar on
+     screen while a format is chosen; and the press stores the property's config, which is the
+     only reason a second row in the same column changes too. The last one is why this section
+     reads `/api/databases` and a row it never opened.
+     --------------------------------------------------------------------------- */
+  const mdyOf = (day) => `${day.slice(5, 7)}/${day.slice(8, 10)}/${day.slice(0, 4)}`;
+  const pickerRow = (label) => b.evaluate(`(() => {
+    const surface = document.querySelector('[data-db-popover]');
+    const row = [...(surface?.querySelectorAll('.db-menu-item') ?? [])]
+      .find((node) => node.querySelector('.db-menu-label')?.textContent.trim() === ${JSON.stringify(label)});
+    if (!row) return null;
+    return {
+      value: row.querySelector('.db-menu-value')?.textContent.trim() ?? null,
+      caret: !!row.querySelector('.db-menu-caret'),
+      checked: !!row.querySelector('.db-menu-check'),
+    };
+  })()`);
+  /* Every surface on screen, first and last. The picker is the first; the format list is the
+     last. Geometry is read in viewport pixels, because "beside" is a claim about pixels. */
+  const rects = () => b.evaluate(`(() => {
+    const all = [...document.querySelectorAll('[data-db-popover]')];
+    const box = (node) => {
+      const r = node.getBoundingClientRect();
+      return { left: Math.round(r.left), top: Math.round(r.top), right: Math.round(r.right), bottom: Math.round(r.bottom) };
+    };
+    return {
+      count: all.length,
+      picker: all.length ? box(all[0]) : null,
+      flyOut: all.length > 1 ? box(all[all.length - 1]) : null,
+      /* The row the fly-out came from — its right edge is where "beside" starts. Measured
+         against the row and not the panel, because the panel's own 6px padding is not
+         something a fly-out has to clear. */
+      row: (() => {
+        const row = all[0]?.querySelector('.db-menu-sub [data-menuitem]');
+        return row ? box(row) : null;
+      })(),
+      view: [innerWidth, innerHeight],
+    };
+  })()`);
+  /* The rows of the last surface open — the fly-out when there is one. */
+  const lastSurface = (selector) => b.evaluate(`(() => {
+    const all = [...document.querySelectorAll('[data-db-popover]')];
+    const surface = all[all.length - 1];
+    return surface ? [...surface.querySelectorAll(${JSON.stringify(selector)})].map((node) => node.textContent.trim()) : [];
+  })()`);
+  const openFlyOut = async () => {
+    await clickMenu("Date format");
+    await b.waitFor("document.querySelectorAll('[data-db-popover]').length > 1", { timeoutMs: 3000, label: "the format fly-out" });
+  };
+
+  /* Section 8 left the column on `Relative`, so the row has something specific to name. */
+  await openCell("Seeded");
+  const alone = await rects();
+  b.check("the picker opens on its own", alone.count === 1, JSON.stringify(alone));
+  b.check("the cell's own picker offers Date format", (await pickerRow("Date format")) !== null, "no such row");
+  b.check(
+    "and the row names the format the column is on",
+    (await pickerRow("Date format"))?.value === "Relative",
+    JSON.stringify(await pickerRow("Date format")),
+  );
+  b.check(
+    "the row says it opens something by wearing the submenu's caret",
+    (await pickerRow("Date format"))?.caret === true,
+    JSON.stringify(await pickerRow("Date format")),
+  );
+
+  await openFlyOut();
+  const beside = await rects();
+  b.check("pressing Date format opens a second surface rather than replacing this one", beside.count === 2, JSON.stringify(beside));
+  b.check(
+    "the calendar is still drawn behind it — a format is chosen while the day stays visible",
+    (await b.evaluate("document.querySelectorAll('.db-cal-grid').length")) === 1,
+    "the body was swapped again",
+  );
+  /* A list that has to be scrolled to reach its last two rows is a list that hid them. The
+     picker's `Date format` row is the last one in a 370px panel, so at 1400x900 it had 160px of
+     window left and drew five of its nine rows — the surface now hangs from the row's bottom
+     edge and grows upward instead. Measured, at both widths, because "it fit" is a pixel claim. */
+  const listScrolls = () => b.evaluate(`(() => {
+    const all = [...document.querySelectorAll('[data-db-popover]')];
+    const surface = all[all.length - 1];
+    return surface ? surface.scrollHeight - surface.clientHeight : -1;
+  })()`);
+  b.check("the whole list is visible, nothing hidden under a fold inside it", (await listScrolls()) === 0, `${await listScrolls()}px of scroll`);
+  if (width >= 700) {
+    b.check(
+      "and at this width it sits beside the row it opened, covering none of it",
+      !!beside.row && beside.flyOut.left >= beside.row.right,
+      JSON.stringify(beside),
+    );
+  } else {
+    /* No room on a phone: 252 + 200 does not fit in 390. The submenu flips to the other edge and
+       lies over the picker — the same thing the tag colour submenu has always done, and better
+       than replacing the body, which is what the owner sent back. Asserted as a measurement, so
+       it is a known trade rather than an accident. */
+    b.check(
+      "at this width there is no room beside it, so it flips and stays wholly inside the viewport",
+      !!beside.row && beside.flyOut.left < beside.row.right
+        && beside.flyOut.left >= 0
+        && beside.flyOut.right <= beside.view[0]
+        && beside.flyOut.top >= 0
+        && beside.flyOut.bottom <= beside.view[1],
+      JSON.stringify(beside),
+    );
+  }
+  const flyLabels = await lastSurface(".db-menu-label");
+  b.check(
+    "the fly-out lists the same six formats the header does",
+    ["Full date", "Short date", "Month/Day/Year", "Day/Month/Year", "Year/Month/Day", "Relative"].every((label) => flyLabels.includes(label)),
+    flyLabels.join(" | "),
+  );
+  b.check(
+    "with exactly the running format ticked",
+    JSON.stringify(
+      await b.evaluate(
+        `(() => {
+          const all = [...document.querySelectorAll('[data-db-popover]')];
+          const surface = all[all.length - 1];
+          return surface
+            ? [...surface.querySelectorAll('.db-menu-item')].filter((node) => node.querySelector('.db-menu-check'))
+              .map((node) => node.querySelector('.db-menu-label')?.textContent.trim())
+            : [];
+        })()`,
+      ),
+    ) === JSON.stringify(["Relative", "24-hour"]),
+    "the format and the clock in use, and nothing else — the clock is a setting with a current value too",
+  );
+  /* `Include time` is on — section 5 turned it on for the whole column — so the clocks belong in
+     this list. A format nobody can see would be a preference that does nothing. The heading is a
+     `.db-menu-title`, not a row: it names a place, which is the one question a heading is for. */
+  const flyHeadings = await lastSurface(".db-menu-title");
+  b.check(
+    "the clocks are listed under the formats when the column shows times",
+    flyHeadings.includes("Time format") && flyLabels.includes("12-hour") && flyLabels.includes("24-hour"),
+    `headings=${flyHeadings.join(" | ")} rows=${flyLabels.join(" | ")}`,
+  );
+  await b.shot(`dates-format-flyout-${width}`);
+
+  await clickMenu("12-hour");
+  for (let i = 0; i < 20; i += 1) {
+    if ((await stored()).config.timeFormat === "12") break;
+    await sleep(120);
+  }
+  b.check(
+    "choosing a clock in the picker is stored on the property too",
+    (await stored()).config.timeFormat === "12",
+    JSON.stringify((await stored()).config),
+  );
+  b.check(
+    "and the list stays where it was — a format and a clock in one visit, no reopening",
+    (await rects()).count === 2 && (await b.evaluate("!!document.querySelector('.db-cal-grid')")),
+    JSON.stringify(await rects()),
+  );
+
+  /* The pick itself, from the list that is already open. */
+  await clickMenu("Month/Day/Year");
+  for (let i = 0; i < 20; i += 1) {
+    if ((await stored()).config.format === "mdy") break;
+    await sleep(120);
+  }
+  b.check("picking a format in the picker stores it on the property", (await stored()).config.format === "mdy", JSON.stringify((await stored()).config));
+  b.check(
+    "the bound row above the grid re-reads in it immediately",
+    (await b.evaluate("document.querySelector('.db-date-day')?.textContent.trim()")) === "10/30/2026",
+    await b.evaluate("document.querySelector('.db-date-day')?.textContent.trim()"),
+  );
+  b.check(
+    "the tick moves to the row just pressed, in the same surface",
+    JSON.stringify(
+      await b.evaluate(
+        `(() => {
+          const all = [...document.querySelectorAll('[data-db-popover]')];
+          const surface = all[all.length - 1];
+          return surface
+            ? [...surface.querySelectorAll('.db-menu-item')].filter((node) => node.querySelector('.db-menu-check'))
+              .map((node) => node.querySelector('.db-menu-label')?.textContent.trim())
+            : [];
+        })()`,
+      ),
+    ) === JSON.stringify(["Month/Day/Year", "12-hour"]),
+    "the acknowledgement is the tick, not a closing surface",
+  );
+  b.check(
+    "the picker behind it is still open — the person was mid-value",
+    (await b.evaluate("document.querySelectorAll('.db-cal-grid').length")) === 1 && (await rects()).count === 2,
+    JSON.stringify(await rects()),
+  );
+
+  /* The property a body swap cannot have: the row that opens the list is still there while the
+     list is open, so the keyboard is never handed to `<body>`. The pane needed `focusMenuRow` on
+     both sides of the swap; here there is nothing to hand back. */
+  const focused = () => b.evaluate(`(() => {
+    const node = document.activeElement;
+    if (!node) return "";
+    return (node.getAttribute('data-menu-key')
+      ?? node.querySelector?.('.db-menu-label')?.textContent.trim()
+      ?? node.getAttribute('aria-label')
+      ?? node.className ?? "").toString();
+  })()`);
+  await b.evaluate(`[...document.querySelectorAll('[data-db-popover] [data-menuitem]')]
+    .find((node) => node.querySelector('.db-menu-label')?.textContent.trim() === "Date format")?.focus()`);
+  await b.waitFor("document.querySelectorAll('[data-db-popover]').length > 1", { timeoutMs: 3000, label: "focus opens the fly-out" });
+  b.check(
+    "focusing the row opens the list, and the keyboard stays on the row that did it",
+    (await focused()) === "Date format",
+    await focused(),
+  );
+  await b.key("ArrowDown", { keyCode: 40 });
+  b.check(
+    "and the picker's own traversal still hears the arrows — it never lost the focused row",
+    (await focused()) === "End date",
+    await focused(),
+  );
+
+  await b.key("Escape", { keyCode: 27 });
+  await b.waitFor("document.querySelectorAll('[data-db-popover]').length === 0", { timeoutMs: 3000, label: "close after the format pick" });
+
+  /* The column, not the cell: a row this section never opened has to have changed too. */
+  b.check("the cell it was opened from reads the new format", (await cellText("Seeded")) === "10/30/2026", await cellText("Seeded"));
+  b.check(
+    "and so does a row in the same column it never touched",
+    (await cellText("Range")) === `${mdyOf(day)} → ${mdyOf(next)}`,
+    `${await cellText("Range")} (expected ${mdyOf(day)} → ${mdyOf(next)})`,
+  );
+
+  /* And the header agrees, because both surfaces read one stored config through one helper. */
+  await pressHeader();
+  b.check("the header's own row names the same format", (await formatRow()) === "Month/Day/Year", await formatRow());
+  await b.key("Escape", { keyCode: 27 });
+  await b.waitFor("document.querySelectorAll('[data-db-popover]').length === 0", { timeoutMs: 3000, label: "close the header" });
+
+  /* ---------------------------------------------------------------------------
+     10. One box for every dropdown.
+     ---------------------------------------------------------------------------
+     These used to be four numbers spread over three files — 240 in the stylesheet, 268 at
+     the property header, 272 in the tag dropdown, 296 for the calendar — so "how wide is a
+     dropdown" had no answer and the widest one was a cell menu. A measurement is the only
+     thing that keeps them one number; a note would be followed by whoever read it. */
+  await openCell("Seeded");
+  const panelWidth = await b.evaluate("Math.round(document.querySelector('[data-db-popover]').getBoundingClientRect().width)");
+  b.check("the date picker is the same width as a menu", panelWidth === 252, `${panelWidth}px`);
+  await b.key("Escape", { keyCode: 27 });
+  await b.waitFor("document.querySelectorAll('[data-db-popover]').length === 0", { timeoutMs: 3000, label: "close the picker" });
+
+  await pressHeader();
+  const menuWidth = await b.evaluate("Math.round(document.querySelector('[data-db-popover]').getBoundingClientRect().width)");
+  b.check("the property menu is that same width", menuWidth === 252, `${menuWidth}px`);
+  /* A narrow menu that cut its own rows short would be a smaller box lying about what is in
+     it: a row would no longer say which row it is. */
+  const clipped = await b.evaluate(`[...document.querySelectorAll('[data-db-popover] .db-menu-label')]
+    .filter((node) => node.scrollWidth > node.clientWidth + 1).map((node) => node.textContent.trim())`);
+  b.check("no row truncates the name of what it does", clipped.length === 0, clipped.join(" | "));
+  await b.key("Escape", { keyCode: 27 });
+  await b.waitFor("document.querySelectorAll('[data-db-popover]').length === 0", { timeoutMs: 3000, label: "close the menu" });
+
+  /* ---------------------------------------------------------------------------
+     11. It fits, and nothing the probe did was refused.
      --------------------------------------------------------------------------- */
   await openCell("Seeded");
   const fits = await b.evaluate(`(() => {

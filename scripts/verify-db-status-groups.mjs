@@ -576,9 +576,17 @@ try {
   );
   await b.type("Shipped");
   await b.key("Enter", { keyCode: 13 });
+  /* Two writes, in order: the option into the config, then the cell that points at it. The
+     probe has to wait for the *second* one — it used to wait for the option alone and then
+     read `rows`, which passed all run at 1400 and failed at 390 whenever the read landed
+     between the two requests. Waiting for the claim is not the same as weakening it: if the
+     cell write were really lost, this times out and says so. */
   const withShipped = await waitStored(
-    (state) => state.options.some((option) => option.name === "Shipped"),
-    "the tag created from a group's + was stored",
+    (state) => {
+      const made = state.options.find((option) => option.name === "Shipped");
+      return Boolean(made) && Object.values(state.rows).includes(made.id);
+    },
+    "the tag created from a group's + was stored and selected in the cell",
   );
   const shipped = withShipped.options.find((option) => option.name === "Shipped");
   b.check(

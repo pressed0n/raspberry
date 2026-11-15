@@ -32,6 +32,7 @@
 import { spawn } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import zlib from "node:zlib";
 
 const CHROME_DEFAULT = "C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe";
 const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
@@ -170,9 +171,24 @@ export async function openBrowser({
 
   let id = 0;
   const pending = new Map();
+  /* Every request the *page* makes, in order. Enabled because "did anything leave this machine"
+     is not a question a DOM assertion can reach: a map drawn from `<img src="https://…">` looks
+     exactly like a map drawn from our own route, and the only difference that matters is one
+     line in somebody else's access log. */
+  const traffic = [];
+  let listener = null;
   ws.onmessage = (e) => {
     const m = JSON.parse(e.data);
-    if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); }
+    if (m.id && pending.has(m.id)) { pending.get(m.id)(m); pending.delete(m.id); return; }
+    if (m.method === "Network.requestWillBeSent") {
+      traffic.push({ url: m.params.request.url, type: m.params.type, at: Date.now() });
+    }
+    /* One listener the probe can install, for the few protocols that are a *conversation*
+       (`Fetch.requestPaused` must be answered, or the page hangs waiting for itself). Passing
+       `null` removes it. */
+    if (listener) {
+      try { listener(m.method, m.params ?? {}); } catch {}
+    }
   };
   const send = (method, params = {}) =>
     new Promise((res) => { const i = ++id; pending.set(i, res); ws.send(JSON.stringify({ id: i, method, params })); });
@@ -187,6 +203,7 @@ export async function openBrowser({
   await send("Runtime.enable");
   await send("Page.enable");
   await send("DOM.enable");
+  await send("Network.enable");
 
   /* The window is not the viewport, and the difference was never in the log line.
      `--window-size=390,844` asks for a *window*: Windows refuses to make one narrower than
@@ -227,6 +244,28 @@ export async function openBrowser({
       }
     },
 
+    /** Every request the page has made, in order — `{ url, type, at }`.
+     *
+     *  `match` filters by substring, `from` skips the first N (a caller marks a point in time by
+     *  reading `.length` first). What this is *for*: proving that a feature which needs the
+     *  network went through our own server. A map drawn from `<img src="https://tile…">` and one
+     *  drawn from `/api/places/tile` are the same pixels, so no assertion about the DOM can tell
+     *  them apart — this can. */
+    requests(match, from = 0) {
+      const all = traffic.slice(from).map((entry) => ({ ...entry }));
+      return match === undefined ? all : all.filter((entry) => entry.url.includes(match));
+    },
+
+    /** How many requests the page had made at this instant, for `requests(match, from)`. */
+    requestCount() {
+      return traffic.length;
+    },
+
+    /** Install (or with `null`, remove) a listener for every CDP event. */
+    onEvent(fn) {
+      listener = fn;
+    },
+
     async waitFor(expression, { timeoutMs = 10000, label = expression } = {}) {
       const steps = Math.ceil(timeoutMs / 250);
       for (let i = 0; i < steps; i++) {
@@ -245,6 +284,18 @@ export async function openBrowser({
 
     async move(x, y) {
       await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y });
+    },
+
+    /** A real double press. `mouse()` twice will not do: Blink dispatches `dblclick` from the
+     *  *second* press's `clickCount`, so the count is the event. Two presses counted as two
+     *  separate clicks select a word and fire no `dblclick` at all — which is how a probe can
+     *  "test" a double-click handler and never once reach it. */
+    async doubleMouse(x, y, { modifiers = 0, button = "left" } = {}) {
+      await send("Input.dispatchMouseEvent", { type: "mouseMoved", x, y, modifiers });
+      await send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button, clickCount: 1, modifiers });
+      await send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button, clickCount: 1, modifiers });
+      await send("Input.dispatchMouseEvent", { type: "mousePressed", x, y, button, clickCount: 2, modifiers });
+      await send("Input.dispatchMouseEvent", { type: "mouseReleased", x, y, button, clickCount: 2, modifiers });
     },
 
     async drag(from, to, { steps = 12 } = {}) {
@@ -282,6 +333,51 @@ export async function openBrowser({
       const file = join(dir, `${name}.png`);
       writeFileSync(file, Buffer.from(r.result.data, "base64"));
       return file;
+    },
+
+    /** The colour the browser actually painted at a **viewport** coordinate — the same space
+     *  `getBoundingClientRect()` speaks — as `{ r, g, b, a }`.
+     *
+     *  Why a 1x1 screenshot and not `getComputedStyle`: "is this box opaque" is a question
+     *  about the composited frame, and computed style answers a different one. An element
+     *  with `background-color: rgba(255,255,255,0.07)` reports exactly that and looks like
+     *  nothing at all — the URL mark's hover state was transparent for a turn and every
+     *  style assertion about it passed.
+     *
+     *  Why the scroll is added here: `Page.captureScreenshot`'s `clip` is in *page*
+     *  coordinates, and this file's callers all hold rectangles measured against the
+     *  viewport. Measured, not assumed: a red block at document y=1000 with the window
+     *  scrolled to 800 is sampled at `pixel(x, 1030)` and *not* at `pixel(x, 230)`. Doing that
+     *  subtraction at one call site and forgetting it at the next is how a probe ends up
+     *  reading the colour of the header.
+     *
+     *  Decoding is 20 lines because the shot is one pixel: PNG filters are all defined
+     *  against the pixel to the left and the row above, and a 1x1 image has neither, so
+     *  every filter type reduces to `raw` and the first pixel is the payload. */
+    async pixel(x, y) {
+      const view = (await evaluate("({ x: window.scrollX, y: window.scrollY })")) ?? { x: 0, y: 0 };
+      const r = await send("Page.captureScreenshot", {
+        format: "png",
+        clip: { x: Math.round(x + view.x), y: Math.round(y + view.y), width: 1, height: 1, scale: 1 },
+      });
+      const png = Buffer.from(r.result.data, "base64");
+      let offset = 8; // the 8-byte signature
+      let colorType = 6;
+      const chunks = [];
+      while (offset < png.length) {
+        const length = png.readUInt32BE(offset);
+        const type = png.toString("ascii", offset + 4, offset + 8);
+        const body = png.subarray(offset + 8, offset + 8 + length);
+        if (type === "IHDR") colorType = body[9];
+        if (type === "IDAT") chunks.push(body);
+        offset += 12 + length;
+      }
+      const raw = zlib.inflateSync(Buffer.concat(chunks));
+      const channels = colorType === 6 ? 4 : colorType === 2 ? 3 : 1;
+      const red = raw[1];
+      const green = channels === 1 ? red : raw[2];
+      const blue = channels === 1 ? red : raw[3];
+      return { r: red, g: green, b: blue, a: channels === 4 ? raw[4] : 255 };
     },
 
     check(name, ok, detail = "") {

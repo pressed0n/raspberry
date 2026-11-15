@@ -13,6 +13,13 @@
    - the two bounds, the clocks, and the month grid.
    - `End date` and `Include time`, as menu rows — the same `.db-menu-item db-menu-row`
      the rest of the app's menus are built from, tick and all.
+   - `Date format`, as a *fly-out*: the same six rows the property menu draws (they live in
+     `date-format-rows.tsx`, imported by both), opened beside this surface by the same
+     `MenuSub` every other submenu in the app uses. The owner asked for it here because the
+     format is a reading of the value in front of you, and then asked for it to be a fly-out
+     rather than a body swap — "those options should open next to the dropdown". It is one
+     pick away either way; the difference is whether the calendar disappears while you
+     choose.
 
    WHAT IT DELIBERATELY DOES NOT OWN
    The arithmetic. `lib/database/calendar.ts` is pure and tested there: a fixed six-week
@@ -47,10 +54,11 @@ import {
   todayKey,
   WEEKDAY_LABELS,
 } from "@/lib/database/calendar";
-import { formatCell } from "@/lib/database/properties";
+import { formatCell, dateFormatLabel } from "@/lib/database/properties";
 import { dateBounds, dateConfigOf, dayHead, type DateConfig } from "@/lib/database/property-types/date";
 import type { CellValue, PropertyDef } from "@/lib/database/types";
-import { MenuDivider, MenuItem, MenuSurface, useMenuDismiss } from "./menu";
+import { MenuDivider, MenuItem, MenuSub, MenuSurface, useMenuDismiss } from "./menu";
+import { DateFormatRows, TimeFormatRows } from "./date-format-rows";
 
 type Bound = "start" | "end";
 
@@ -103,7 +111,6 @@ export function DateCell({
         anchor={trigger}
         open={open}
         onClose={close}
-        width={296}
         maxHeight={430}
         preferHeight={390}
         className="db-date-menu"
@@ -364,6 +371,21 @@ function DatePanel({
           check={config.includeTime}
           onSelect={() => { void onConfig({ includeTime: !config.includeTime }); }}
         />
+      ) : null}
+      {onConfig ? (
+        /* Fly-out, not a body swap: the owner asked for these rows to open *beside* the
+           picker. `MenuSub` is the app's one submenu — it opens to the right of this row,
+           flips to the left when the room is gone, and keeps the calendar behind it. The
+           row names the format the column is on, because the setting is the column's: one
+           pick changes how every date in it reads. Picking leaves the fly-out open so a
+           format and a clock can be set in one visit, with the bound row above the grid
+           re-reading in the new format as the acknowledgement. */
+        <MenuSub role="button" label="Date format" trailing={dateFormatLabel(config.format)} preferHeight={260}>
+          <DateFormatRows format={config.format} onPick={(format) => { void onConfig({ format }); }} />
+          {config.includeTime ? (
+            <TimeFormatRows clock={config.timeFormat} onPick={(clock) => { void onConfig({ timeFormat: clock }); }} />
+          ) : null}
+        </MenuSub>
       ) : null}
     </div>
   );

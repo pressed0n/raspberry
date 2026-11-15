@@ -13,14 +13,17 @@
    --------------------------------------------------------------------------- */
 import { useEffect, useRef, useState } from "react";
 import { ArrowDownAZ, ArrowDownNarrowWide, ArrowUpAZ, ArrowUpNarrowWide, Copy, EyeOff, ListOrdered, Ruler, Trash, X } from "lucide-react";
-import { currencies, currencySymbol, dateFormatChoices, formatCell, numberFormatChoices, resolveProperty, sortKind, sortLabels } from "@/lib/database/properties";
-import { clockText, dateConfigOf } from "@/lib/database/property-types/date";
-import { propertyTypes, type PropertyDef, type PropertyType, type SortDirection } from "@/lib/database/types";
+import { currencies, currencySymbol, dateFormatLabel, formatCell, numberFormatChoices, resolveProperty, sortKind, sortLabels } from "@/lib/database/properties";
+import { dateConfigOf } from "@/lib/database/property-types/date";
+import { propertyTypes, type PropertyDef, type PropertyType, type RowDef, type SortDirection } from "@/lib/database/types";
 import { iconNameFor, PropertyIcon } from "./property-icons";
 import { IconPicker } from "./icon-picker";
+import { FormulaPanel } from "./formula-panel";
 import { StatusGroupsPane } from "./status-groups";
 import { groupsOf } from "@/lib/database/property-types/groups";
-import { MenuDivider, MenuHeading, MenuItem, MenuSub, MenuSurface, useMenuDismiss } from "./menu";
+import { urlConfigOf } from "@/lib/database/property-types/link";
+import { DateFormatRows, TimeFormatRows } from "./date-format-rows";
+import { MenuDivider, MenuHeading, MenuItem, MenuSub, MenuSurface, focusMenuRow, useMenuDismiss } from "./menu";
 
 /* The direction vocabulary is the schema's, not this component's — a header that can
    offer a direction the server would reject is a menu row that fails on click. Re-exported
@@ -55,6 +58,7 @@ export function PropertyHeader({
   onType,
   onConfig,
   refusal,
+  formula,
 }: {
   property: PropertyDef;
   sort: SortDirection | null;
@@ -78,9 +82,15 @@ export function PropertyHeader({
   /* Set when the last attempt to change *this* column's type was refused, and how many
      cells it would clear. The menu turns that into a second, explicit choice. */
   refusal?: { type: PropertyType; cells: number } | null;
+  /* The rows and columns a formula editor previews against. Absent in a table that
+     cannot write, which is also why the "Edit formula" row is absent. */
+  formula?: { properties: PropertyDef[]; rows: RowDef[] };
 }) {
   const [open, setOpen] = useState(false);
   const [iconOpen, setIconOpen] = useState(false);
+  /* The formula editor is a *dialog*, not a pane: it is 620px wide and it hangs off the
+     header itself, so it does not replace the menu the way the status groups do. */
+  const [formulaOpen, setFormulaOpen] = useState(false);
   /* The property menu is two panes: the menu, and the status groups editor. A second
      `MenuSurface` would need an anchor that survives the row that opened it, and the
      corridor between two popovers is exactly what B40m was spent on. */
@@ -127,11 +137,16 @@ export function PropertyHeader({
   /* A date column reads two ways, and until now neither had a control: the format, and
      whether the column shows clocks at all. */
   const date = property.type === "date" ? dateConfigOf(property.config) : null;
-  /* One sample, rendered by the real formatter through the real registry — a *date-only*
-     value on purpose: a timed sample is 130px at this font and would truncate the label
-     beside it in a 200px submenu, which is the lesson the number menu already paid for. */
-  const datePreview = (patch: Record<string, unknown> = {}) =>
-    formatCell({ type: "date", config: { ...(property.config ?? {}), ...patch } }, "2026-10-30");
+  /* The row names the format in the submenu's own words rather than showing a rendered
+     sample. A sample is what made this menu 268px wide: "October 27, 2026" had to fit in a
+     trailing slot whose only job was to say which of six rows was ticked one level down. */
+  const dateLabel = dateFormatLabel(date?.format);
+
+  /* A link column reads one way or the other — short, or exactly as stored — and the row
+     says which in words. A *rendered* example was the obvious alternative and it is the one
+     that loses: `https://www.example.com/` is forty characters in a 252px menu, so the row
+     that explains the shortening would be the only clipped row in it. */
+  const url = property.type === "url" ? urlConfigOf(property.config) : null;
 
   const closeMenu = () => {
     setOpen(false);
@@ -142,6 +157,16 @@ export function PropertyHeader({
   };
 
   useMenuDismiss(open, closeMenu);
+
+  /* The pane unmounts the row that opened it, so focus would fall to `<body>` — outside the
+     surface, where its arrow-key traversal cannot hear anything. Coming *back* puts the
+     keyboard on that row again; going in is handled by `MenuPaneHead`'s own `autoFocus`. */
+  const returning = useRef(false);
+  useEffect(() => {
+    if (pane !== "menu" || !returning.current) return;
+    returning.current = false;
+    focusMenuRow("status-groups");
+  }, [pane]);
 
   useEffect(() => {
     setDraft(property.name);
@@ -217,9 +242,16 @@ export function PropertyHeader({
         onMouseDown={(event) => event.stopPropagation()}
       />
 
-      <MenuSurface anchor={anchor} open={open} onClose={closeMenu} width={268} className="db-prop-menu">
+      <MenuSurface anchor={anchor} open={open} onClose={closeMenu} className="db-prop-menu">
         {pane === "groups" ? (
-          <StatusGroupsPane property={property} onConfig={onConfig} onBack={() => setPane("menu")} />
+          <StatusGroupsPane
+            property={property}
+            onConfig={onConfig}
+            onBack={() => {
+              returning.current = true;
+              setPane("menu");
+            }}
+          />
         ) : (
         <>
         <div className="db-prop-head">
@@ -257,6 +289,15 @@ export function PropertyHeader({
 
         <MenuDivider />
 
+        {property.type === "formula" && onConfig && formula ? (
+          <MenuItem
+            icon={<PropertyIcon name="sigma" size={14} />}
+            label="Edit formula"
+            focusKey="edit-formula"
+            onSelect={() => { closeMenu(); setFormulaOpen(true); }}
+          />
+        ) : null}
+
         {/* Status is the one type whose tags live in groups, so its group *list* is part of
             what the property is — one row here, and the pane behind it. It sits above Sort
             because it changes what the column means, not how a view presents it. */}
@@ -265,6 +306,7 @@ export function PropertyHeader({
             icon={<PropertyIcon name={iconNameFor({ type: "status" })} size={14} />}
             label="Status groups"
             trailing={`${groupsOf(property.config).length}`}
+            focusKey="status-groups"
             onSelect={() => setPane("groups")}
           />
         ) : null}
@@ -383,39 +425,22 @@ export function PropertyHeader({
         ) : null}
 
         {date && (
-          <MenuSub icon={<PropertyIcon name="calendar" size={14} />} label="Date format" trailing={datePreview()}>
-            {dateFormatChoices.map((choice) => (
-              <MenuItem
-                key={choice.format}
-                label={choice.label}
-                check={date.format === choice.format}
-                onSelect={() => {
-                  onConfig?.({ format: choice.format });
+          <MenuSub icon={<PropertyIcon name="calendar" size={14} />} label="Date format" trailing={dateLabel}>
+            <DateFormatRows
+              format={date.format}
+              onPick={(format) => {
+                onConfig?.({ format });
+                closeMenu();
+              }}
+            />
+            {date.includeTime ? (
+              <TimeFormatRows
+                clock={date.timeFormat}
+                onPick={(clock) => {
+                  onConfig?.({ timeFormat: clock });
                   closeMenu();
                 }}
               />
-            ))}
-            {/* The clocks live under the same row, the way the currencies live under
-                "Number format": a fourth surface at 390px has nowhere to go but on top of
-                the three before it. Only when the column shows times, because a format
-                nobody can see is a preference that does nothing. */}
-            {date.includeTime ? (
-              <>
-                <MenuDivider />
-                <MenuHeading>Time format</MenuHeading>
-                {(["24", "12"] as const).map((clock) => (
-                  <MenuItem
-                    key={clock}
-                    label={clock === "24" ? "24-hour" : "12-hour"}
-                    trailing={clockText("14:30", { format: "iso", includeTime: true, timeFormat: clock })}
-                    check={date.timeFormat === clock}
-                    onSelect={() => {
-                      onConfig?.({ timeFormat: clock });
-                      closeMenu();
-                    }}
-                  />
-                ))}
-              </>
             ) : null}
           </MenuSub>
         )}
@@ -426,6 +451,16 @@ export function PropertyHeader({
             label="Include time"
             check={date.includeTime}
             onSelect={() => onConfig({ includeTime: !date.includeTime })}
+          />
+        ) : null}
+
+        {url && onConfig ? (
+          <MenuItem
+            icon={<PropertyIcon name="link" size={14} />}
+            label="Show full URL"
+            check={url.fullUrl}
+            hint="Off hides the https:// and the www. a browser adds."
+            onSelect={() => onConfig({ fullUrl: !url.fullUrl })}
           />
         ) : null}
 
@@ -523,6 +558,19 @@ export function PropertyHeader({
         onRemove={onIcon ? () => onIcon("") : undefined}
         removeLabel="Remove"
       />
+
+      {/* The same surface a formula cell opens, anchored to the header instead of the
+          cell: "Edit formula" and pressing the column's value are one editor, not two. */}
+      {formulaOpen && formula && onConfig ? (
+        <FormulaPanel
+          anchor={anchor}
+          property={property}
+          properties={formula.properties}
+          rows={formula.rows}
+          onCommit={(expression) => onConfig({ expression })}
+          onClose={() => setFormulaOpen(false)}
+        />
+      ) : null}
     </>
   );
 }

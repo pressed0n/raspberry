@@ -44,8 +44,6 @@ export function EntryIcon({
           event.stopPropagation();
           setOpen((was) => !was);
         }}
-        /* The row's double-click opens the entry; reaching for its icon must not. */
-        onDoubleClick={(event) => event.stopPropagation()}
       >
         {empty ? <Plus size={13} aria-hidden /> : <PropertyIcon name={icon} size={14} />}
       </button>

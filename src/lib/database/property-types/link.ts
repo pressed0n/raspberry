@@ -1,4 +1,4 @@
-import { asText, compareNullable, collator, isEmail, isPhone, matchesText, normalizeUrl, type PropertyTypeSpec } from "./shared";
+import { asRecord, asText, compareNullable, collator, isEmail, isPhone, matchesText, normalizeUrl, type PropertyTypeSpec } from "./shared";
 import type { CellValue } from "../types";
 
 /**
@@ -16,6 +16,42 @@ import type { CellValue } from "../types";
 
 const emptyOrText = (value: CellValue): string => asText(value).trim();
 
+/**
+ * How a URL column reads.
+ * ---------------------------------------------------------------------------
+ * A link is *stored* resolvable and *read* as the part a person typed: `https://` and
+ * `www.` are what a browser adds on its own, and in a 32px cell they are the two things
+ * that push the part you recognise off the right edge. So the default is short, and
+ * `fullUrl` is the column's answer for the addresses where the scheme is the point — an
+ * `http:` that is deliberately not `https:`, a `mailto:`, a port.
+ *
+ * This is presentation, not storage: `coerce` still keeps the address whole, so nothing
+ * downstream — a filter, a sort, a formula — ever sees half a link.
+ */
+export type UrlConfig = { fullUrl?: boolean };
+
+export function urlConfigOf(config?: unknown): Required<UrlConfig> {
+  const raw = asRecord(config as CellValue) ?? {};
+  return { fullUrl: raw.fullUrl === true };
+}
+
+/** The link as a person reads it: no scheme, no `www.`, no lone trailing slash. */
+export function shortUrl(text: string): string {
+  const bare = text.trim().replace(/^https?:\/\//i, "").replace(/^www\./i, "");
+  /* `https://example.com` is stored as `https://example.com/` — the root path's slash is
+     the one slash a browser invents, and keeping it would make every plain domain the
+     only link in the column that ends in punctuation it did not have. A slash after a
+     path is the address's own (`/docs/`), so it stays. */
+  return /^[^/?#]+\/$/.test(bare) ? bare.slice(0, -1) : bare;
+}
+
+/** The address a link *cell* points at, or `null` when this is not something to open.
+ *  `normalizeUrl` is the server's own filter, so what a cell draws as a link and what the
+ *  server would accept as one cannot disagree. */
+export function urlHref(value: CellValue): string | null {
+  return normalizeUrl(emptyOrText(value));
+}
+
 export const urlProperty: PropertyTypeSpec = {
   type: "url",
   label: "URL",
@@ -27,7 +63,14 @@ export const urlProperty: PropertyTypeSpec = {
     emptyOrText(b) === "" ? null : emptyOrText(b),
     collator.compare,
   ),
-  format: (value) => emptyOrText(value),
+  format: (value, config) => {
+    const text = emptyOrText(value);
+    /* The scheme lives on disk and not on screen. `formatCell` is what every view, every
+       filter chip and the MCP surface read, so a link is short everywhere it is shown and
+       whole everywhere it is used. */
+    if (text === "" || urlConfigOf(config).fullUrl) return text;
+    return shortUrl(text);
+  },
   fits: (operator, value, operand) => matchesText(operator, value, operand),
   aggregates: ["count", "unique"],
 };

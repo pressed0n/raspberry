@@ -63,7 +63,12 @@ try {
     await b.evaluate(`location.hash = ${JSON.stringify(target.pageId)}; true`);
     await new Promise((r) => setTimeout(r, 1000));
   }
-  await b.waitFor(`!!document.querySelector(".db-table")`, { timeoutMs: 20000, label: "the table" });
+  /* A minute, not twenty seconds: the first navigation to a page in a cold `next dev`
+     compiles that page's client bundle on demand, and that compile is not a property of the
+     app. At 1400 it outran the 20s used here, which was reported as "waitFor timed out: the
+     table" — a broken table that was really a cold cache. `waitFor` polls until it succeeds,
+     so the longer ceiling costs a warm run nothing. */
+  await b.waitFor(`!!document.querySelector(".db-table")`, { timeoutMs: 60000, label: "the table" });
   console.log("shot:", await b.shot("b40-table"));
 
   /* `ALLOW_WRITES=1` means "this instance is disposable". It is set for the isolated
@@ -190,10 +195,17 @@ try {
     /* The last one: the first column is the title, and a title cannot change type. */
     const header = headers[headers.length - 1];
     if (!header) return null;
+    /* Scroll it into view first, then ask the page whether a press at that point would land
+       on the header. At 390 the table scrolls sideways and the last column sits off-screen, so
+       the old version pressed a coordinate outside the page and the menu could never open —
+       which read as "the property menu is broken". Same check the other probes use. */
+    header.scrollIntoView({ block: "nearest", inline: "center" });
     const box = header.getBoundingClientRect();
-    return { x: box.left + box.width / 2, y: box.top + box.height / 2, label: (header.textContent ?? "").trim() };
+    const x = Math.round(box.left + box.width / 2), y = Math.round(box.top + box.height / 2);
+    const hit = document.elementFromPoint(x, y);
+    return { x, y, label: (header.textContent ?? "").trim(), reachable: !!hit && (hit === header || header.contains(hit) || hit.contains(header)) };
   })()`);
-  b.check("B40: a column header is clickable", menu !== null, menu ? menu.label : "none found");
+  b.check("B40: a column header is clickable", menu !== null && menu.reachable !== false, menu ? `${menu.label} reachable=${menu.reachable}` : "none found");
   if (menu && /^Add property$/i.test(menu.label)) {
     /* The owner's live database has one column — the title — and a title cannot change
        type. Recording that as a skip is honest; recording it as a failure taught the first
@@ -352,5 +364,10 @@ try {
 } catch (error) {
   console.log("probe failed:", error.message);
   console.log("shot:", await b.shot("b40-failure"));
+  /* An exception used to reach `report()` with whatever checks had run so far — which, on a
+     failure at the first step, printed `OK: 0/0 passed` and exited 0. A run that proved nothing
+     reported success, and this file's "Change type" step had been dead for turns because of it.
+     A throw is a failure of the probe, and it is recorded as one. */
+  b.check("the probe ran to the end without throwing", false, String(error?.message ?? error));
   await b.report();
 }

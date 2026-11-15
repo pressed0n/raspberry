@@ -222,17 +222,18 @@ test("an end before the start is dropped rather than stored backwards", () => {
 
 test("a date renders in the format the property asks for", () => {
   const date = spec("date");
-  assert.equal(date.format({ start: "2026-10-30", end: null }, { format: "iso" }), "2026-10-30");
+  assert.equal(date.format({ start: "2026-10-30", end: null }, { format: "full" }), "October 30, 2026");
+  assert.equal(date.format({ start: "2026-10-30", end: null }, { format: "short" }), "Oct 30");
   assert.equal(date.format({ start: "2026-10-30", end: null }, { format: "dmy" }), "30/10/2026");
   assert.equal(date.format({ start: "2026-10-30", end: null }, { format: "mdy" }), "10/30/2026");
-  assert.equal(date.format({ start: "2026-10-30", end: null }, { format: "long" }), "30 Oct 2026");
+  assert.equal(date.format({ start: "2026-10-30", end: null }, { format: "ymd" }), "2026/10/30");
   assert.equal(
     date.format({ start: "2026-10-30T14:30", end: null }, { includeTime: true, timeFormat: "24" }),
-    "2026-10-30 14:30",
+    "October 30, 2026 14:30",
   );
   assert.equal(
     date.format({ start: "2026-10-30T14:30", end: null }, { includeTime: true, timeFormat: "12" }),
-    "2026-10-30 2:30 PM",
+    "October 30, 2026 2:30 PM",
   );
 });
 
@@ -244,7 +245,7 @@ test("a same-day range is the wishlist's '8 hours on one day'", () => {
      spends the cell's width restating a day it just named — and the picker now draws this
      exact value as its own preview, so the two must agree. `tests/database-dates.test.ts`
      pins the collapse, and the multi-day form beside it. */
-  assert.equal(date.format(meeting, { includeTime: true, timeFormat: "24" }), "2026-10-30 09:00 → 17:00");
+  assert.equal(date.format(meeting, { includeTime: true, timeFormat: "24" }), "October 30, 2026 09:00 → 17:00");
 });
 
 test("a bare date in a filter means the whole day", () => {
@@ -316,14 +317,25 @@ test("a button column has no value, only an action", () => {
   assert.equal(button.format(null, { label: "Send invoice" }), "", "the label is the control's, not the value's");
 });
 
-test("a formula is derived, numeric, and never stored", () => {
+test("a formula is derived, typed by its own result, and never stored", () => {
   const formula = spec("formula");
   assert.equal(formula.derived, true);
-  assert.equal(formula.coerce("42", {}), 42);
+  /* A formula result can be a number, text, a checkbox, a date or a list, so `coerce`
+     passes a scalar through rather than parsing it into a number — parsing is what the
+     language does, and doing it twice would make `format()` lose its text results. */
+  assert.equal(formula.coerce(42, {}), 42);
+  assert.equal(formula.coerce("Done", {}), "Done");
+  assert.equal(formula.coerce({ nested: true }, {}), null);
   assert.equal(formula.format(12.5, {}), "12.5");
   assert.equal(formula.format(12, {}), "12");
+  assert.equal(formula.format("in progress", {}), "in progress");
+  assert.equal(formula.format(true, {}), "Yes");
+  assert.equal(formula.format({ start: "2026-10-30" }, {}), "October 30, 2026");
+  assert.equal(formula.format([1, 2], {}), "1, 2");
   assert.equal(formula.isEmpty(null, {}), true);
+  assert.equal(formula.isEmpty("", {}), true);
   assert.ok(formula.compare(2, 10, {}) < 0, "formulas sort numerically, not alphabetically");
+  assert.ok(formula.compare("b", "a", {}) > 0, "and alphabetically when they are text");
   assert.equal(formula.fits("greaterThan", 10, 2, {}), true);
 });
 

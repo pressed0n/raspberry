@@ -19,11 +19,11 @@ import {
   Building, Cake, Calculator, Calendar, CalendarDays, Camera, Car, Check, Circle,
   CircleCheck, CircleDot, Clock, Cloud, Code, Coffee, Coins, Compass, Cpu,
   CreditCard, Crosshair, Database, Dice5, DollarSign, Download, Droplet, Dumbbell,
-  Eye, EyeOff, Film, FileText, Fingerprint, Flag, Flame, FlaskConical, Folder, Footprints,
+  Eye, EyeOff, Film, FileText, Fingerprint, Flag, Flame, FlaskConical, Footprints,
   Gamepad2, Gift, Globe, GraduationCap, Hammer, Hash, Headphones, Heart, Home,
   Hourglass, Image, Inbox, Key, Layers, Leaf, Lightbulb, LineChart, Link, List,
   ListChecks, Lock, Mail, Map, MapPin, Medal, Megaphone, MessageCircle, Mic,
-  Microscope, Moon, Music, NotebookPen, Palette, PartyPopper, Percent, PenTool,
+  Microscope, Moon, Music, NotebookPen, Palette, Paperclip, PartyPopper, Percent, PenTool,
   Phone, PieChart, Plane, Plug, Printer, Puzzle, Receipt, RefreshCw, Repeat, Rocket,
   Ruler, Scale, School, Scissors, Search, Send, Server, Settings, Shield,
   ShoppingBag, ShoppingCart, Shuffle, Sigma, Smile, Snowflake, Sparkles, Sprout,
@@ -50,7 +50,10 @@ export const PROPERTY_ICONS: Record<string, LucideIcon> = {
   user: User, users: Users, mail: Mail, "at-sign": AtSign, phone: Phone, send: Send,
   inbox: Inbox, "message-circle": MessageCircle, megaphone: Megaphone, bell: Bell,
   /* things */
-  files: Folder, "file-text": Book, image: Image, film: Film, video: Video, mic: Mic,
+  /* A paperclip, not a folder: this column holds attachments, and `folder` in this app is a
+     *page container*. A column icon that means "a box of pages" over cells that hold photos is
+     the same mistake as the `+` in a column of icons that meant "add a row". */
+  files: Paperclip, "file-text": Book, image: Image, film: Film, video: Video, mic: Mic,
   music: Music, headphones: Headphones, camera: Camera, printer: Printer, palette: Palette,
   brush: Brush, "pen-tool": PenTool, scissors: Scissors, puzzle: Puzzle, "gamepad-2": Gamepad2,
   dice: Dice5, gift: Gift, "party-popper": PartyPopper,
@@ -133,6 +136,7 @@ export const DEFAULT_PROPERTY_ICON: Record<string, string> = {
   url: "link",
   email: "mail",
   phone: "phone",
+  place: "map-pin",
   formula: "sigma",
   relation: "layers",
   rollup: "activity",

@@ -113,6 +113,20 @@
   --shadow-lg: 0 24px 64px rgba(0, 0, 0, 0.6), 0 2px 10px rgba(0, 0, 0, 0.45);
 
   --scrim: rgba(6, 6, 6, 0.46);
+
+  /* The Place cell's map preview. Four values, because a raster basemap is somebody else's
+     artwork and cannot be re-themed — only filtered.
+     `--db-map-filter` is the standard dark-mode inversion of a light map: invert the luminance,
+     rotate the hue back so water stays water and parks stay green, then take a little contrast
+     out so the street names do not glow. `--db-map-backdrop` is what shows through a tile that
+     failed: the same dark grey as the tiles around it, so a hole reads as a hole in the map
+     rather than a hole in the app. The pin ring is near-white in both themes because it sits on
+     a *map*, not on the app's surface. */
+  --db-map-filter: invert(0.9) hue-rotate(180deg) brightness(1.18) contrast(0.82) saturate(0.55);
+  --db-map-backdrop: #232222;
+  --db-map-pin-ring: rgba(255, 255, 255, 0.92);
+  --db-map-pin-wash: rgba(21, 20, 20, 0.55);
+  --db-map-credit: rgba(255, 255, 255, 0.82);
 }
 
 [data-theme="light"] {
@@ -168,6 +182,13 @@
   --shadow-lg: 0 24px 64px rgba(24, 22, 20, 0.16), 0 2px 10px rgba(24, 22, 20, 0.08);
 
   --scrim: rgba(24, 22, 20, 0.28);
+
+  /* The basemap is already drawn for a light page, so it is shown as it is. */
+  --db-map-filter: none;
+  --db-map-backdrop: #e8e6e1;
+  --db-map-pin-ring: rgba(255, 255, 255, 0.95);
+  --db-map-pin-wash: rgba(255, 255, 255, 0.55);
+  --db-map-credit: rgba(24, 22, 20, 0.72);
 }
 
 /* Motion: one place to change, and a real reduced-motion path rather than

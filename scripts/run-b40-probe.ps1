@@ -56,6 +56,16 @@ try {
 
   $env:PAGE_ID = $pageId
   $env:ALLOW_WRITES = "1"
+  # Warm the *page* route before the first width. `/api/health` compiles the health route and
+  # nothing else, so the first browser navigation in a cold `next dev` compiles the page on
+  # demand — and at 1400 that compile outran the probe's 20s `waitFor: the table`, which was
+  # reported as a broken table until the catch above stopped swallowing it.
+  for ($i = 0; $i -lt 20; $i++) {
+    try {
+      $page = Invoke-WebRequest -Uri "http://127.0.0.1:3100/#$pageId" -UseBasicParsing -TimeoutSec 60
+      if ($page.StatusCode -eq 200) { break }
+    } catch { Start-Sleep -Seconds 2 }
+  }
   Write-Output "--- 1400x900 ---"
   $env:W = "1400"; $env:H = "900"
   node scripts\verify-database-b40.mjs

@@ -28,6 +28,7 @@ import {
 } from "../lib/database/types";
 import { resolveProperty, type PropertyTypeSpec } from "../lib/database/properties";
 import { convertCell } from "../lib/database/convert";
+import { applyFormulas } from "../lib/database/formula";
 import { pruneOptionValue } from "../lib/database/property-types/groups";
 import type { Database, Sql } from "./database";
 import { AppError, access, databaseScope, fingerprint, receipt, remember, type Actor } from "./service";
@@ -613,7 +614,12 @@ export class DatabaseService {
     const row = await this.load(sql, actor, id);
     const properties = (await sql.query("SELECT * FROM database_properties WHERE database_id=$1 ORDER BY position,created_at,id", [id])).map(property);
     const views = (await sql.query("SELECT * FROM database_views WHERE database_id=$1 ORDER BY position,created_at,id", [id])).map(view);
-    const rows = await this.rows(sql, id);
+    /* Formula columns are computed here, once per read, against the rows this payload
+       is about to carry: the table, the filters, the sorts, the MCP export and the
+       API's own JSON all then read `cells[id]` and none of them needs a second path.
+       Nothing is written — `derived` is the promise that a formula cell has no
+       `database_cells` row. */
+    const rows = applyFormulas(properties, await this.rows(sql, id));
     return {
       id: text(row.id),
       pageId: row.page_id ? text(row.page_id) : null,

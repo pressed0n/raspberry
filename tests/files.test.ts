@@ -96,6 +96,24 @@ test("an uploaded page is served as a download, not as a document", async () => 
   assert.equal(response.headers.get("x-content-type-options"), "nosniff");
 });
 
+test("download=1 turns an image into a file to save, with its stored name", async () => {
+  /* The cell's save button. An image is served `inline` so the name link can show it; the same
+     bytes asked for as a download must arrive as an attachment, or the browser opens a tab and
+     the person still has no file. The name in the header is the stored one, not the id. */
+  const { store } = await fixture();
+  const saved = await store.store(owner, "sunset photo.png", upload("sunset photo.png", PNG));
+
+  const view = await store.serve(owner, saved.id, null);
+  assert.match(String(view.headers.get("content-disposition")), /^inline/);
+
+  const save = await store.serve(owner, saved.id, null, true);
+  assert.match(String(save.headers.get("content-disposition")), /^attachment/);
+  assert.match(String(save.headers.get("content-disposition")), /filename\*=UTF-8''sunset%20photo\.png/);
+  /* The flag changes the disposition and nothing else: same type, same bytes, same immutability. */
+  assert.equal(save.headers.get("content-type"), "image/png");
+  assert.deepEqual(Buffer.from(await save.arrayBuffer()), PNG);
+});
+
 test("svg is sandboxed so it cannot run script on our origin", async () => {
   const { store } = await fixture();
   const saved = await store.store(owner, "logo.svg", upload("logo.svg", Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"/>')));

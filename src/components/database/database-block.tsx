@@ -333,7 +333,7 @@ export function DatabaseBlock({ props }: { props: Record<string, unknown> }) {
       <div className="db-block db-block-state db-block-error">
         <DatabaseIcon size={15} />
         <span>{load.message}</span>
-        <button type="button" className="db-retry" onClick={() => void reload()} onMouseDown={noop}>Retry</button>
+        <button type="button" className="db-mini-btn" onClick={() => void reload()} onMouseDown={noop}>Retry</button>
       </div>
     );
   }

@@ -15,9 +15,8 @@
    is what a write carries, so a column still on the defaults stays on the defaults until the
    owner edits something.
 */
-import { ArrowLeft } from "lucide-react";
 import type { PropertyDef } from "@/lib/database/types";
-import { MenuDivider } from "./menu";
+import { MenuDivider, MenuPaneHead } from "./menu";
 import { GroupRow, NewGroupBlock, useGroupEditor } from "./group-controls";
 
 export function StatusGroupsPane({
@@ -35,12 +34,7 @@ export function StatusGroupsPane({
 
   return (
     <div className="db-groups-pane">
-      <div className="db-groups-head">
-        <button type="button" className="db-prop-icon-btn db-menu-back" aria-label="Back to property" title="Back" onClick={onBack}>
-          <ArrowLeft size={15} aria-hidden />
-        </button>
-        <span className="db-groups-title">Status groups</span>
-      </div>
+      <MenuPaneHead title="Status groups" back="Back to property" onBack={onBack} />
 
       <MenuDivider />
 

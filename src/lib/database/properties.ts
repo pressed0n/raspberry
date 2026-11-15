@@ -1,4 +1,4 @@
-import { propertyTypeSchema, type CellValue, type PropertyDef, type PropertyType } from "./types";
+import { legacyDateFormats, propertyTypeSchema, type CellValue, type DateFormatName, type PropertyDef, type PropertyType } from "./types";
 
 /**
  * The property-type registry.
@@ -303,13 +303,45 @@ export const numberFormatChoices = [
   { format: "duration", label: "Duration" },
 ] as const;
 
-/* The date formats, in the order the menu lists them — and the same rule about samples:
-   the row above carries the one sample, rendered through `formatCell` with this column's
-   config, because four previews beside four labels would truncate every label in a 200px
-   submenu (the number menu paid for that lesson). */
+/* The date formats, in the order the menu lists them.
+   These are the six names a person recognises from Notion, and the order is the one that
+   reads from most-informative to least: the two word forms first (they are the ones that
+   name a day without asking you to parse digits), then the three digit orders, then
+   `Relative` last — it is the only one whose meaning depends on when you look at it, so
+   it is the one a person should arrive at deliberately.
+   No samples here on purpose: the row above the submenu used to carry one, and a rendered
+   "October 27, 2026" in a trailing slot is what set the menu's width. A label the width of
+   "Month/Day/Year" does not. */
 export const dateFormatChoices = [
-  { format: "long", label: "Month day, year" },
-  { format: "mdy", label: "Month/day/year" },
-  { format: "dmy", label: "Day/month/year" },
-  { format: "iso", label: "Year-month-day" },
+  { format: "full", label: "Full date" },
+  { format: "short", label: "Short date" },
+  { format: "mdy", label: "Month/Day/Year" },
+  { format: "dmy", label: "Day/Month/Year" },
+  { format: "ymd", label: "Year/Month/Day" },
+  { format: "relative", label: "Relative" },
+] as const;
+
+/**
+ * The name of a date format, for any row that has to say which one is running without
+ * rendering a date into its trailing slot.
+ *
+ * Two surfaces say it now — the property menu's `Date format` row and the picker's own —
+ * and a second copy of this lookup is exactly how one of them ends up naming a format the
+ * other spells differently. A value written before this vocabulary used words (`iso`,
+ * `long`) resolves to the name it is *read as*, so a row never says nothing while the cell
+ * is rendering fine. Anything the registry does not know falls back to the schema's
+ * default, which is the same fallback `dateConfigOf` applies.
+ */
+export function dateFormatLabel(format: DateFormatName | string | null | undefined): string {
+  const named = typeof format === "string" ? legacyDateFormats[format] ?? format : null;
+  const match = dateFormatChoices.find((choice) => choice.format === named);
+  return (match ?? dateFormatChoices[0]).label;
+}
+
+/* How a time is written, when the column shows one. Two rows, listed with the sample each
+   one produces — a clock format is not a word, it is `14:30` or `2:30 PM`, and the row has
+   room for both. */
+export const timeFormatChoices = [
+  { clock: "24", label: "24-hour" },
+  { clock: "12", label: "12-hour" },
 ] as const;

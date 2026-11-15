@@ -1,5 +1,6 @@
+import { dayDiff, todayKey } from "../calendar";
 import { asRecord, asText, compareNullable, type PropertyTypeSpec } from "./shared";
-import type { CellValue } from "../types";
+import { dateFormats, legacyDateFormats, type CellValue, type DateFormatName } from "../types";
 
 /**
  * Date (with the optional end date and time granularity the wishlist asks for).
@@ -16,8 +17,10 @@ import type { CellValue } from "../types";
  * the wishlist's "same day lasting 8 hours".
  */
 
-export const dateFormatNames = ["iso", "dmy", "mdy", "long"] as const;
-export type DateFormat = (typeof dateFormatNames)[number];
+/* The vocabulary lives in `types.ts`, beside the schema's enum, because the server has to
+   accept the same six words and the two retired ones. Re-exported here so a formatter that
+   only needs "what can a date look like" does not have to import the whole schema module. */
+export type DateFormat = DateFormatName;
 
 export interface DateConfig {
   format?: DateFormat;
@@ -33,14 +36,21 @@ export interface DateConfig {
  */
 export function dateConfigOf(config?: unknown): Required<DateConfig> {
   const raw = (config ?? {}) as DateConfig;
+  const named = raw.format ? legacyDateFormats[raw.format] ?? raw.format : null;
   return {
-    format: raw.format && dateFormatNames.includes(raw.format) ? raw.format : "iso",
+    format: named && dateFormats.includes(named) ? named : "full",
     includeTime: Boolean(raw.includeTime),
     timeFormat: raw.timeFormat === "12" ? "12" : "24",
   };
 }
 
 const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+const MONTHS_LONG = [
+  "January", "February", "March", "April", "May", "June",
+  "July", "August", "September", "October", "November", "December",
+];
+/** `getUTCDay()`'s order — Sunday first. */
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
 /** `YYYY-MM-DD` or `YYYY-MM-DDTHH:mm` and nothing else. */
 const FLOATING = /^(\d{4})-(\d{2})-(\d{2})(?:T(\d{2}):(\d{2}))?$/;
@@ -90,14 +100,37 @@ function renderOne(value: string, config: DateConfig): { day: string; time: stri
   };
 }
 
+/**
+ * "Today", "Yesterday", "Tomorrow"; then the weekday name for a day still inside the
+ * week ahead, `Last <weekday>` for one inside the week behind, and the full date after
+ * that. The cutoffs are the ones a person reading a list already uses: "Thursday" is
+ * useful while the week still has a Thursday in it, and "October 17, 2026" is what a
+ * date has to say once it is no longer this week's business.
+ *
+ * `today` is a parameter, not a call to the clock, because a formatter that reads the
+ * clock cannot be tested on the day it matters — the one where the offset is 0.
+ */
+export function relativeLabel(day: string, today: string): string {
+  const diff = dayDiff(today, day);
+  if (diff === 0) return "Today";
+  if (diff === -1) return "Yesterday";
+  if (diff === 1) return "Tomorrow";
+  const weekday = WEEKDAYS[new Date(`${day}T00:00:00Z`).getUTCDay()] ?? "";
+  if (diff > 1 && diff <= 6) return weekday;
+  if (diff < -1 && diff >= -6) return `Last ${weekday}`;
+  return dayHead(day, { format: "full" });
+}
+
 /** The date part, in this column's format. */
-export function dayHead(day: string, config: DateConfig): string {
+export function dayHead(day: string, config: DateConfig, today: string = todayKey()): string {
   const [year, month, date] = day.split("-");
-  switch (config.format ?? "iso") {
-    case "dmy": return `${date}/${month}/${year}`;
+  switch (config.format ?? "full") {
     case "mdy": return `${month}/${date}/${year}`;
-    case "long": return `${Number(date)} ${MONTHS[Number(month) - 1]} ${year}`;
-    default: return day;
+    case "dmy": return `${date}/${month}/${year}`;
+    case "ymd": return `${year}/${month}/${date}`;
+    case "short": return `${MONTHS[Number(month) - 1]} ${Number(date)}`;
+    case "relative": return relativeLabel(day, today);
+    default: return `${MONTHS_LONG[Number(month) - 1]} ${Number(date)}, ${year}`;
   }
 }
 

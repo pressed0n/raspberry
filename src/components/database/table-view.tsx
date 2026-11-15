@@ -26,6 +26,8 @@ import { AddPropertyMenu } from "./add-property-menu";
 import { CellEditor } from "./cell-editor";
 import { EntryIcon } from "./entry-icon";
 import { MenuHeading, MenuItem, MenuSurface, useMenuDismiss } from "./menu";
+import { UrlText } from "./url-cell";
+import { FilesText } from "./files-cell";
 import { iconNameFor, PropertyIcon } from "./property-icons";
 import { MAX_COLUMN_WIDTH, MIN_COLUMN_WIDTH, PropertyHeader, type SortDirection } from "./property-header";
 
@@ -392,6 +394,7 @@ export function TableView({
                   onType={onTypeProperty && property.id !== primaryPropertyId ? (type, anyway) => onTypeProperty(property.id, type, anyway) : undefined}
                   onConfig={onConfigProperty && property.id !== primaryPropertyId ? (patch) => onConfigProperty(property.id, patch) : undefined}
                   refusal={refusalOf?.(property.id) ?? null}
+                  formula={onConfigProperty ? { properties: database.properties, rows: database.rows } : undefined}
                 />
               </th>
             ))}
@@ -408,10 +411,11 @@ export function TableView({
             <tr
               key={row.id}
               data-row-id={row.id}
-              /* A row is a page, and the class says so: `db-row-open` is what makes the
-                 double-click below a promise rather than a hint. */
-              className={["db-row", onOpenRow ? "db-row-open" : "", selected.has(row.id) ? "is-selected" : "", dragging === row.id ? "is-dragging" : "", dragging && over?.id === row.id && dragging !== row.id ? "is-drop-over" : ""].filter(Boolean).join(" ")}
-              onDoubleClick={() => onOpenRow?.(row.id)}
+              /* A row is a page, and the page opens from the `Open` button in its name cell
+                 — from nowhere else. A row-wide double-click used to do it too, and a
+                 double press inside a cell is exactly how people select a word while
+                 editing: the second press left the table and took the edit with it. */
+              className={["db-row", selected.has(row.id) ? "is-selected" : "", dragging === row.id ? "is-dragging" : "", dragging && over?.id === row.id && dragging !== row.id ? "is-drop-over" : ""].filter(Boolean).join(" ")}
             >
               {/* The row's own controls, in the order a hand reaches for them — and in
                   the editor's order, not a table's: `+` then grip then the tick. Every
@@ -518,6 +522,7 @@ export function TableView({
                           placeholder="Untitled"
                           autoFocus={row.id === focusRow}
                           onCommit={(value) => onCell?.(row.id, property.id, value)}
+                          formula={{ properties: database.properties, rows: database.rows }}
                         />
                       ) : (
                         <span className="db-cell-text">{formatCell(property, row.title)}</span>
@@ -549,7 +554,20 @@ export function TableView({
                       autoFocus={row.id === focusRow && property.id === primaryPropertyId}
                       onCommit={(value) => onCell?.(row.id, property.id, value)}
                       onConfig={onConfigProperty ? (patch) => onConfigProperty(property.id, patch) : undefined}
+                      formula={{ properties: database.properties, rows: database.rows }}
                     />
+                  ) : property.type === "url" ? (
+                    /* A read-only table has no field to put a caret in, so the link is the
+                       text — the whole control, with nothing competing for the press. */
+                    <UrlText
+                      property={property}
+                      value={property.id === primaryPropertyId ? row.title : row.cells[property.id] ?? null}
+                    />
+                  ) : property.type === "files" ? (
+                    /* …and a read-only table has no surface either, so the file's own name is
+                       the way to it. Same summary the editable cell draws, so a column reads
+                       the same whether or not it can be written to. */
+                    <FilesText value={property.id === primaryPropertyId ? row.title : row.cells[property.id] ?? null} />
                   ) : (
                     <span className="db-cell-text">{formatCell(property, property.id === primaryPropertyId ? row.title : row.cells[property.id] ?? null)}</span>
                   )}

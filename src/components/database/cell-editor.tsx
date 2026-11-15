@@ -7,28 +7,37 @@
    into a text column still lands as a number in a number column, and why a new
    property type can ship with no editor at all and still be editable as text.
 
-   Three types have no editor because they have no value to type: a formula is
-   computed, a created-time is a fact, and a button is an action. They render as text
-   and say so by being unclickable. */
+   A formula is computed rather than typed, so it has no field — but it is not inert
+   either: `FormulaCell` opens the formula editor, which writes the *property's* config
+   rather than a cell value. The two types that are genuinely facts rather than values
+   (created time, button) render as text and say so by being unclickable. */
 import { useEffect, useRef, useState } from "react";
 import { focusCellFrom } from "@/lib/database/cell-nav";
 import { formatCell } from "@/lib/database/properties";
-import type { CellValue, PropertyDef } from "@/lib/database/types";
+import type { CellValue, PropertyDef, RowDef } from "@/lib/database/types";
 import { OptionCell } from "./option-panel";
 import { DateCell } from "./date-panel";
+import { PlaceCell } from "./place-cell";
+import { FilesCell } from "./files-cell";
+import { FormulaCell } from "./formula-cell";
+import { UrlOpen } from "./url-cell";
 
-const noValue: ReadonlySet<PropertyDef["type"]> = new Set(["formula", "createdTime", "button"]);
+const noValue: ReadonlySet<PropertyDef["type"]> = new Set(["createdTime", "button"]);
 
-export function CellEditor({ property, value, onCommit, onConfig, autoFocus, placeholder }: {
+export function CellEditor({ property, value, onCommit, onConfig, autoFocus, placeholder, formula }: {
   property: PropertyDef;
   value: CellValue;
   onCommit: (value: CellValue) => void;
   /* Only Select / Multi-select / Status use this: creating, renaming, recolouring or
      deleting a tag is a *property* write, not a cell write. Optional, because a
-     read-only table has nothing to write to. */
+     read-only table has nothing to write to. A formula's whole definition goes through
+     the same door. */
   onConfig?: (patch: Record<string, unknown>) => Promise<unknown> | void;
   autoFocus?: boolean;
   placeholder?: string;
+  /* The rows and columns a formula editor previews against. Only the formula branch
+     reads them; every other type ignores them. */
+  formula?: { properties: PropertyDef[]; rows: RowDef[] };
 }) {
   const text = formatCell(property, value);
   const [draft, setDraft] = useState(text);
@@ -48,6 +57,20 @@ export function CellEditor({ property, value, onCommit, onConfig, autoFocus, pla
     latest.current = text;
   }, [text]);
 
+  if (property.type === "formula") {
+    /* No field and no `onCommit`: the *expression* is the property's config, so the
+       write goes through `onConfig` and the cell value is only ever read. */
+    return (
+      <FormulaCell
+        property={property}
+        value={value}
+        properties={formula?.properties ?? []}
+        rows={formula?.rows ?? []}
+        onConfig={onConfig}
+      />
+    );
+  }
+
   if (noValue.has(property.type)) {
     /* No `db-cell` here: this span is *inside* a `<td class="db-cell">`, and nesting the
        cell's own class inside the cell is what produced a box inside a box. The padding
@@ -57,15 +80,24 @@ export function CellEditor({ property, value, onCommit, onConfig, autoFocus, pla
 
   if (property.type === "checkbox") {
     const on = value === true;
+    /* The wrapper is not decoration. `.db-cell` is `vertical-align: top`, and a bare
+       `inline-grid` tick participates in the cell's *line box*: an inline-grid's baseline is
+       the bottom of the box when the grid is empty, but the baseline of its tick when it is
+       not — so the same control drew 2.5px lower once it was checked, and 4px above the
+       cell's centre either way. A flex row is a box of its own: the tick is a flex item, no
+       baseline enters into it, and `align-items: center` centres it in the cell's content
+       box at any row height. Measured, not assumed — `scripts/verify-db-checkbox.mjs`. */
     return (
-      <button
-        type="button"
-        role="checkbox"
-        aria-checked={on}
-        aria-label={property.name}
-        className={on ? "db-check db-check-on" : "db-check"}
-        onClick={() => onCommit(!on)}
-      />
+      <div className="db-check-cell">
+        <button
+          type="button"
+          role="checkbox"
+          aria-checked={on}
+          aria-label={property.name}
+          className={on ? "db-check db-check-on" : "db-check"}
+          onClick={() => onCommit(!on)}
+        />
+      </div>
     );
   }
 
@@ -84,7 +116,26 @@ export function CellEditor({ property, value, onCommit, onConfig, autoFocus, pla
     return <DateCell property={property} value={value} onCommit={onCommit} onConfig={onConfig} autoFocus={autoFocus} />;
   }
 
-  return (
+  if (property.type === "place") {
+    /* Place owns its own field rather than borrowing the shared one, because in this column
+       the field is a *search box*: the arrows walk a result list instead of the grid, Enter
+       means "take this one", and the first Escape dismisses the list rather than the edit.
+       Borrowing the shared field and intercepting would have put those rules in two files. */
+    return <PlaceCell property={property} value={value} onCommit={onCommit} autoFocus={autoFocus} />;
+  }
+
+  if (property.type === "files") {
+    /* No field, because there is no text: pressing the cell opens the one surface that
+       attaches files and lists what is attached. `db-cell-input` here was a text box that
+       let you type a *name*, which stored a reference to bytes that were never uploaded. */
+    return <FilesCell value={value} onCommit={onCommit} />;
+  }
+
+  /* The one text field. Five types render through it — Text, URL, Email, Phone, and
+     anything a new type ships before it has an editor of its own — so it is built once and
+     handed to whichever wrapper the type needs. Place has its own, because its field is a
+     search box. */
+  const field = (
     <input
       ref={(node) => { ref.current = node; }}
       className="db-cell-input"
@@ -93,7 +144,7 @@ export function CellEditor({ property, value, onCommit, onConfig, autoFocus, pla
       value={draft}
       inputMode={property.type === "number" ? "decimal" : "text"}
       type="text"
-      placeholder={placeholder ?? (property.type === "url" ? "https://" : "Empty")}
+      placeholder={placeholder ?? (property.type === "url" ? "example.com" : "Empty")}
       onChange={(event) => { setDraft(event.target.value); latest.current = event.target.value; }}
       onBlur={() => { if (latest.current !== text) onCommit(latest.current); }}
       onKeyDown={(event) => {
@@ -115,4 +166,17 @@ export function CellEditor({ property, value, onCommit, onConfig, autoFocus, pla
       }}
     />
   );
+
+  if (property.type === "url") {
+    /* A link, with an opener. The field keeps the caret — see `url-cell.tsx` for why the
+       text does not navigate — and the address opens from the mark at the cell's edge. */
+    return (
+      <div className="db-url-cell">
+        {field}
+        <UrlOpen value={value} />
+      </div>
+    );
+  }
+
+  return field;
 }

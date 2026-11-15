@@ -50,6 +50,14 @@
   resize: none;
   overflow: hidden;
   padding: 0;
+  /* A descender needs room the line box does not give it. `--lh-tight` is deliberate on a
+     display title, and this is a `rows=1` textarea with `overflow: hidden`, so the clip edge
+     is the padding box — at 40px the serif's box is ~50px tall inside a 47.2px line, and the
+     tail of a "p" sits under the edge. 0.06em is the shortfall, in em, so it scales with
+     `--fs-title` instead of being a pixel count that is right at one breakpoint only.
+     `scripts/verify-text-clip.mjs` measures exactly this: a clipping box must leave room for
+     the ink below the baseline. */
+  padding-bottom: 0.06em;
 }
 .doc-title::placeholder { color: var(--text-3); }
 

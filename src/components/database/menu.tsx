@@ -16,7 +16,7 @@
    --------------------------------------------------------------------------- */
 import { createPortal } from "react-dom";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type ReactNode, type RefObject } from "react";
-import { ChevronRight } from "lucide-react";
+import { ChevronRight, ArrowLeft } from "lucide-react";
 /* The viewport gutter is `menu-place.ts`'s, not a second 8 written here: that module
    already pins every dropdown in the app 8px from the edge, and a menu that respected a
    different margin would look like it belonged to a different product. */
@@ -24,6 +24,13 @@ import { GUTTER } from "@/lib/menu-place";
 
 const GAP = 6;
 const EDGE = GUTTER;
+/* Two numbers, and every dropdown in the database uses one of them: a menu is 252 wide and
+   a submenu that flies out to its side is 200. They used to be four numbers spread over
+   three files and an inline prop — 240 in the stylesheet, 252 in a rule that lost to it,
+   268 at the property header, 272 in the tag dropdown — so "how wide is a dropdown" had no
+   answer, and the widest of them was a cell menu. A control that appears in the same
+   product as three others should be the same box. */
+const MENU_WIDTH = 252;
 const SUBMENU_WIDTH = 200;
 const MIN_BELOW = 220;
 /* The least a side submenu is allowed to show of itself. Below this it stops tracking its
@@ -40,7 +47,7 @@ const MIN_TALL = 160;
  * horizontal flip on purpose, while a submenu flies out to the right of its row and must
  * flip left when the window is narrow. What is shared — the 8px gutter — is imported.
  */
-export function menuStyle(anchor: DOMRect, width: number, maxHeight: number, side: "below" | "right" = "below", preferHeight = MIN_BELOW): CSSProperties {
+export function menuStyle(anchor: DOMRect, width: number, maxHeight: number, side: "below" | "right" = "below", preferHeight?: number): CSSProperties {
   if (side === "right") {
     const flipLeft = anchor.right + GAP + width > window.innerWidth - EDGE;
     /* The vertical reserve used to be a flat 120px, which assumed every submenu was
@@ -49,22 +56,56 @@ export function menuStyle(anchor: DOMRect, width: number, maxHeight: number, sid
        clicked: `elementFromPoint` there answers `null`, because it is off-screen.
        So the panel is capped to the room that actually remains and scrolls inside
        itself, and it only leaves its row's top edge when the room is under 160px. */
-    let top = Math.max(EDGE, Math.min(anchor.top - 4, window.innerHeight - EDGE - 120));
-    if (window.innerHeight - EDGE - top < MIN_TALL) top = Math.max(EDGE, window.innerHeight - EDGE - MIN_TALL);
+    const top = Math.max(EDGE, Math.min(anchor.top - 4, window.innerHeight - EDGE - 120));
+    const roomBelow = window.innerHeight - EDGE - top;
+    const left = flipLeft ? Math.max(EDGE, anchor.left - GAP - width) : anchor.right + GAP;
+    /* A caller that says how tall it is gets the other way out of the same squeeze: rather
+       than sitting at the row's top edge and scrolling, the surface hangs from the row's
+       *bottom* edge and grows upward. The date picker's `Date format` list needs this — its
+       row is the last one in a 370px panel, so it had 160px of window left and five of its
+       nine rows were under the fold. Only a caller that states `preferHeight` takes this
+       path; every other submenu keeps the top-anchored behaviour its probes measure. */
+    if (preferHeight !== undefined && roomBelow < Math.min(preferHeight, maxHeight)) {
+      /* Both edges clamped: `MIN_TALL` of the window has to remain under the surface's bottom
+         edge, and its top edge has to stay above the gutter, or the "other way out" would be a
+         different way off-screen. */
+      const bottom = Math.min(
+        Math.max(EDGE, window.innerHeight - anchor.bottom),
+        window.innerHeight - EDGE - MIN_TALL,
+      );
+      return {
+        left,
+        bottom,
+        width,
+        maxHeight: Math.max(MIN_TALL, Math.min(maxHeight, window.innerHeight - EDGE - bottom)),
+      };
+    }
+    /* The clamp that keeps a squeezed submenu on screen when its row is right against the
+       bottom: move it up until it has `MIN_TALL` of window, and let it scroll. */
+    if (roomBelow < MIN_TALL) {
+      const lifted = Math.max(EDGE, window.innerHeight - EDGE - MIN_TALL);
+      return {
+        left,
+        top: lifted,
+        width,
+        maxHeight: Math.max(MIN_TALL, Math.min(maxHeight, window.innerHeight - EDGE - lifted)),
+      };
+    }
     return {
-      left: flipLeft ? Math.max(EDGE, anchor.left - GAP - width) : anchor.right + GAP,
+      left,
       top,
       width,
-      maxHeight: Math.max(MIN_TALL, Math.min(maxHeight, window.innerHeight - EDGE - top)),
+      maxHeight: Math.max(MIN_TALL, Math.min(maxHeight, roomBelow)),
     };
   }
+  const prefer = preferHeight ?? MIN_BELOW;
   const below = window.innerHeight - anchor.bottom - EDGE;
   const above = anchor.top - EDGE;
   /* `preferHeight` is the point at which the surface would rather be somewhere else — the
-     date picker is ~380px tall and knows it, so a cell near the bottom of the window gets the
+     date picker is ~390px tall and knows it, so a cell near the bottom of the window gets the
      surface *above* it instead of a scrolled one with its two toggles under the fold. A menu
      of rows keeps the old 220, because it is height-clamped and scrolls by design. */
-  const flip = below < preferHeight && above > below;
+  const flip = below < prefer && above > below;
   return {
     left: Math.max(EDGE, Math.min(anchor.left, window.innerWidth - width - EDGE)),
     ...(flip ? { bottom: window.innerHeight - anchor.top + GAP } : { top: anchor.bottom + GAP }),
@@ -82,7 +123,13 @@ export function menuStyle(anchor: DOMRect, width: number, maxHeight: number, sid
 export function useAnchoredStyle(
   open: boolean,
   anchor: RefObject<HTMLElement | null>,
-  { width = 252, maxHeight = 460, side = "below" as "below" | "right", extra = 0, preferHeight = MIN_BELOW } = {},
+  { width = MENU_WIDTH, maxHeight = 460, side = "below" as "below" | "right", extra = 0, preferHeight }: {
+    width?: number;
+    maxHeight?: number;
+    side?: "below" | "right";
+    extra?: number;
+    preferHeight?: number;
+  } = {},
 ): CSSProperties | null {
   const [style, setStyle] = useState<CSSProperties | null>(null);
 
@@ -118,12 +165,19 @@ export function useAnchoredStyle(
  * and, because a scripted `dispatchEvent` does not reproduce the flush ordering, one that
  * every synthetic test passes.
  */
-export function useMenuDismiss(open: boolean, onClose: () => void) {
+export function useMenuDismiss(open: boolean, onClose: () => void, keep?: RefObject<HTMLElement | null>) {
   useEffect(() => {
     if (!open) return;
     const onDown = (event: MouseEvent) => {
       const target = event.target as Element | null;
       if (target?.closest("[data-db-popover]")) return;
+      /* `keep` is the *anchor* — the control the surface hangs off. Every other menu here is
+         opened by a button that toggles, so letting the press close it and the click reopen
+         it is a toggle. The place cell is different: its anchor is the text field the person
+         is typing into, and a press there is how a caret is placed mid-word. Without this,
+         every second press inside the field would dismiss the results of the search that
+         field had just performed. */
+      if (keep?.current?.contains(target as Node)) return;
       onClose();
     };
     const onKey = (event: KeyboardEvent) => {
@@ -171,14 +225,17 @@ export function MenuSurface({
   anchor,
   open,
   onClose,
-  width = 252,
+  width = MENU_WIDTH,
   className = "",
   side = "below",
   maxHeight = 460,
   /* What the surface *is*, for assistive tech. `menu` is right for a list of actions; a
      surface that contains a calendar and two fields is a `dialog`, and calling it a menu
-     would announce a text field as a menu item's sibling. */
+     would announce a text field as a menu item's sibling. `listbox` is the place cell's
+     results: focus never leaves its field, so the rows are options a *combobox* points at,
+     and calling them menu items would announce a list of places as a list of commands. */
   role = "menu",
+  id,
   preferHeight,
   children,
   ref,
@@ -190,7 +247,9 @@ export function MenuSurface({
   className?: string;
   side?: "below" | "right";
   maxHeight?: number;
-  role?: "menu" | "dialog";
+  role?: "menu" | "dialog" | "listbox";
+  /* The `id` a combobox's `aria-controls` names. Every other caller can omit it. */
+  id?: string;
   /* How tall the surface wants to be, when it knows. Under this much room below, it flips
      above the anchor instead of scrolling — the date picker's calendar plus its two toggles
      do not survive being cut in half. Omitted, a menu keeps the 220px threshold. */
@@ -206,6 +265,7 @@ export function MenuSurface({
     <div
       ref={ref}
       data-db-popover=""
+      id={id}
       role={role}
       className={`db-menu ${className}`.trim()}
       style={style}
@@ -234,6 +294,37 @@ export function MenuHeading({ children }: { children: ReactNode }) {
   return <p className="db-menu-title">{children}</p>;
 }
 
+/**
+ * The head of a *pane* — a surface whose body was replaced rather than opened beside it.
+ *
+ * There is one implementation because the arrow is the one control in this app that must not
+ * drift: it is `.db-prop-icon-btn`'s base plus the `.db-menu-back` modifier (chrome dropped,
+ * geometry kept), it says where you are going back *to* in its label, and it sits on the same
+ * two-pixel padding as `.db-prop-head`, so swapping a menu's body for a pane does not move the
+ * head by a pixel. The status groups pane and the date picker's format list both render this.
+ */
+export function MenuPaneHead({ title, back = "Back", onBack }: { title: string; back?: string; onBack: () => void }) {
+  return (
+    <div className="db-pane-head">
+      {/* `autoFocus` because opening a pane *removes the row that was focused*: without it
+          `document.activeElement` falls back to `<body>`, which is outside the surface, so the
+          arrow-key traversal below never hears another press and the pane is keyboard-dead. */}
+      <button type="button" className="db-prop-icon-btn db-menu-back" title={back} aria-label={back} onClick={onBack} autoFocus>
+        <ArrowLeft size={15} aria-hidden />
+      </button>
+      <span className="db-pane-title">{title}</span>
+    </div>
+  );
+}
+
+/** Put the keyboard back on the row that opened a pane.
+ *
+ *  The other half of the same fact: `Back` removes the back button, so focus would land on
+ *  `<body>` again. Called after the body has swapped back — the row only exists once it has. */
+export function focusMenuRow(key: string) {
+  document.querySelector<HTMLElement>(`[data-db-popover] [data-menu-key="${key}"]`)?.focus();
+}
+
 export function MenuItem({
   icon,
   label,
@@ -241,6 +332,8 @@ export function MenuItem({
   check,
   danger,
   disabled,
+  caret,
+  focusKey,
   onSelect,
   trailing,
   role = "menuitem",
@@ -251,6 +344,13 @@ export function MenuItem({
   check?: boolean;
   danger?: boolean;
   disabled?: boolean;
+  /* A row that replaces the surface's body — the date picker's `Date format`, the property
+     menu's `Status groups` — says so with the same caret a fly-out submenu wears, because
+     the gesture is the same promise: there is more behind this word. Both stay 13px and in
+     one column whichever the row also carries a value in. */
+  caret?: boolean;
+  /* Names the row so the pane it opened can put the keyboard back on it. `focusMenuRow`. */
+  focusKey?: string;
   onSelect?: () => void;
   trailing?: ReactNode;
   /* `button`, for the rows of a surface that is a `dialog` rather than a `menu` — the
@@ -263,6 +363,7 @@ export function MenuItem({
       type="button"
       role={role}
       data-menuitem=""
+      data-menu-key={focusKey}
       disabled={disabled}
       title={hint}
       className={`db-menu-item db-menu-row${danger ? " db-menu-danger" : ""}${disabled ? " is-disabled" : ""}`}
@@ -275,6 +376,7 @@ export function MenuItem({
           items carry a sample. A bare text node here would sit under the label instead,
           which is why this is the same `.db-menu-value` the submenu rows use. */}
       {trailing ? <span className="db-menu-value">{trailing}</span> : null}
+      {caret ? <ChevronRight size={13} className="db-menu-caret" aria-hidden /> : null}
       {check ? <span className="db-menu-check" aria-hidden>✓</span> : null}
     </button>
   );
@@ -322,7 +424,30 @@ function inSafeTriangle(x: number, y: number, apex: { x: number; y: number }, ed
  * Hover opens it (matches every menu a person already knows); focus and click open it
  * too, so it is reachable by keyboard and on a touch screen, where hover never fires.
  */
-export function MenuSub({ icon, label, trailing, disabled, children }: { icon?: ReactNode; label: string; trailing?: ReactNode; disabled?: boolean; children: ReactNode }) {
+export function MenuSub({
+  icon,
+  label,
+  trailing,
+  disabled,
+  role = "menuitem",
+  preferHeight,
+  children,
+}: {
+  icon?: ReactNode;
+  label: string;
+  trailing?: ReactNode;
+  disabled?: boolean;
+  /* `button`, for a submenu row that lives in a surface which is a `dialog` rather than a
+     `menu` — the date picker's `Date format`. Every other row of that surface is a button,
+     and one row announcing itself as a menu item inside a dialog is a lie about the list
+     around it. Same reason `MenuItem` has this prop. */
+  role?: "menuitem" | "button";
+  /* How tall the list is. Stated only by a submenu that would otherwise be squeezed against
+     the bottom of the window — the date picker's format list, whose row is the last in a tall
+     panel. It then hangs from the row's bottom edge and grows upward instead of scrolling. */
+  preferHeight?: number;
+  children: ReactNode;
+}) {
   const anchor = useRef<HTMLButtonElement>(null);
   const surface = useRef<HTMLDivElement>(null);
   const [open, setOpen] = useState(false);
@@ -434,7 +559,7 @@ export function MenuSub({ icon, label, trailing, disabled, children }: { icon?: 
       <button
         ref={anchor}
         type="button"
-        role="menuitem"
+        role={role}
         data-menuitem=""
         disabled={disabled}
         aria-haspopup="menu"
@@ -449,7 +574,7 @@ export function MenuSub({ icon, label, trailing, disabled, children }: { icon?: 
         {trailing ? <span className="db-menu-value">{trailing}</span> : null}
         <ChevronRight size={13} className="db-menu-caret" aria-hidden />
       </button>
-      <MenuSurface ref={surface} anchor={anchor} open={open} onClose={close} width={SUBMENU_WIDTH} side="right">
+      <MenuSurface ref={surface} anchor={anchor} open={open} onClose={close} width={SUBMENU_WIDTH} side="right" preferHeight={preferHeight}>
         {children}
       </MenuSurface>
     </div>

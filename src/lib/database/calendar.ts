@@ -83,6 +83,17 @@ export function addDays(day: string, delta: number): string {
   return new Date(at.getTime() + delta * DAY_MS).toISOString().slice(0, 10);
 }
 
+/**
+ * Whole days from `from` to `to` — negative in the past, 0 for the same day.
+ *
+ * The subtraction happens in UTC midnight space, for the same reason `addDays` does: two
+ * local midnights can be 23 or 25 hours apart, and a difference that rounds to 0.96 days
+ * would make "Yesterday" mean nothing on the day the clocks change.
+ */
+export function dayDiff(from: string, to: string): number {
+  return Math.round((Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / DAY_MS);
+}
+
 /** The same day-of-month inside another month, clamped — 31 January → February is the
  *  28th, not the 3rd of March. */
 export function dayInMonth({ year, month }: MonthView, day: number): string {

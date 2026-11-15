@@ -196,10 +196,26 @@ test("the groups pane draws no heading that only restates its layout", () => {
 /* The pane's back arrow is navigation, not an input; the bordered 28px box it wore is the
    property menu's icon *well*, right there because it sits beside a text field. The modifier
    that drops the chrome is added alongside the base class — `.db-grip`'s rule — because
-   replacing it would silently lose the size, the radius and the hover lift. */
-test("the back arrow keeps the shared icon button and only drops its chrome", () => {
-  assert.match(groupsPane, /className="db-prop-icon-btn db-menu-back"/,
+   replacing it would silently lose the size, the radius and the hover lift.
+
+   It now has exactly one implementation (`MenuPaneHead`), because the date picker grew a pane
+   of its own and a second hand-rolled head is how the two arrows come to sit on different
+   paddings. So the modifier is asserted where it is defined, and both panes are asserted to
+   *import* it rather than draw their own. */
+test("the pane head is one implementation, and its arrow only drops its chrome", () => {
+  assert.match(groupsPane, /import \{[^}]*MenuPaneHead[^}]*\} from "\.\/menu"/,
+    "the groups pane draws the shared head");
+  assert.doesNotMatch(groupsPane, /db-menu-back/, "and does not restate the arrow");
+
+  const datePane = readFileSync("src/components/database/date-panel.tsx", "utf8");
+  assert.doesNotMatch(datePane, /MenuPaneHead|db-menu-back/,
+    "the date picker's Date format is a fly-out now (B43d), so it draws no pane head and no arrow — "
+    + "a second copy of the shared head, or a second arrow, is what this test exists to catch");
+
+  const menu = readFileSync("src/components/database/menu.tsx", "utf8");
+  assert.match(menu, /className="db-prop-icon-btn db-menu-back"/,
     "a modifier is added alongside the base class, never instead of it");
+
   const css = readFileSync("src/app/database.css", "utf8");
   const rule = css.match(/\.db-prop-icon-btn\.db-menu-back\s*\{([^}]*)\}/)?.[1] ?? "";
   assert.match(rule, /border-color:\s*transparent/, "the modifier removes the border");

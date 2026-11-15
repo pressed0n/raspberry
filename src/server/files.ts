@@ -190,7 +190,7 @@ export class FileStore {
   }
 
   /** Serve the bytes, honouring a single range so video and audio can seek. */
-  async serve(actor: Actor, id: string, rangeHeader: string | null): Promise<Response> {
+  async serve(actor: Actor, id: string, rangeHeader: string | null, download = false): Promise<Response> {
     const row = await this.find(actor, id);
     if (!row) throw new AppError(404, "not_found", "That file is no longer available.");
     const path = join(uploadsDir(), String(row.sha256));
@@ -213,7 +213,10 @@ export class FileStore {
       ETag: `"${String(row.sha256)}"`,
     });
     const inline = [...INLINE].some((prefix) => mime.startsWith(prefix)) || mime === "application/pdf";
-    headers.set("Content-Disposition", `${inline ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(name)}`);
+    /* `download` is the cell's save button asking for the same rule the non-inline types get:
+       a picture opened to look at, the same picture saved when that is what was asked. It can
+       only make a response *more* restricted — a `.html` upload is an attachment either way. */
+    headers.set("Content-Disposition", `${inline && !download ? "inline" : "attachment"}; filename*=UTF-8''${encodeURIComponent(name)}`);
     // A sandboxed document cannot run script, so an uploaded SVG or .txt cannot
     // reach the API with the reader's cookies even when opened directly.
     if (SANDBOXED.has(mime)) headers.set("Content-Security-Policy", "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'");

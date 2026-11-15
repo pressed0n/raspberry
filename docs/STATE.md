@@ -1,4 +1,4 @@
-﻿# State of Raspberry
+# State of Raspberry
 
 **This file is the only statement of what is done, what is next, and what is parked.**
 If any other document disagrees with it, this file is right and that document is history.
@@ -17,11 +17,11 @@ keeps it from rotting the way its predecessors did.
 
 <!-- SNAPSHOT:BEGIN — checked by tests/docs-freshness.test.ts -->
 
-- **Tests:** 499 passing, 0 failing, across 39 test files.
+- **Tests:** 625 passing, 0 failing, across 49 test files.
 - **Typecheck:** `tsc --noEmit` clean.
-- **Committed through:** `f7b7ce2` — feat(database): B42 tags, status groups and dates; B40m/n submenus; B42b-e.
+- **Committed through:** `2833a7c` — docs: snapshot at the commit above.
 - **Schema:** migrations 1–7.
-- **Working tree:** clean.
+- **Working tree:** dirty (uncommitted work in progress).
 <!-- SNAPSHOT:END -->
 
 Run it yourself, it takes four seconds:
@@ -472,6 +472,45 @@ Shipped on 30 October 2026, after the last reconciliation, and each proved in a 
   surfaces reach the shared editor and that neither draws a heading of its own: that drift is the
   actual bug, so the guard is on the sharing, not on the feature.
 
+- **B43d — `Date format` next to the picker, not over it; and the list that was being squeezed**
+  (this turn). *"When clicking on date format you have those options open over the current
+  dropdown ... those options should open next to the dropdown."*
+
+  B43c's body swap was a substitute with an argument, and the argument — 252 + 200 does not fit in
+  390 — was true and beside the point. The row is now the app's **one submenu** (`MenuSub`), the
+  same primitive as `Sort`, `Decimal places` and the tag colours: right of the row, flipped left
+  when there is no room, one hover corridor, one Escape. The picker's pane state,
+  `returnToCalendar`, `MenuPaneHead` and `focusMenuRow` are gone from `date-panel.tsx`, along with
+  the dead `.db-date-pane` rule; `Status groups` keeps the pane machinery, which still has a test.
+
+  Two things the change needed, both found by measuring:
+
+  | | |
+  |---|---|
+  | the list was being **squeezed, not placed** | at 1400×900 the row is the last of a 370px panel, so `menuStyle`'s side rule left the surface **164px** of window and drew five of its nine rows — both clocks under a fold. A caller that states `preferHeight` now hangs the surface from the row's **bottom** edge and grows upward: nine rows, ending on the row it belongs to. Submenus that state nothing keep the old placement, which their probes measure |
+  | **390 is still arithmetic** | 252 + 200 does not fit, so there the fly-out flips left and lies over part of the calendar — exactly what the tag-colour submenu has always done. Now asserted rather than assumed, at both widths: *"at this width there is no room beside it, so it flips and stays wholly inside the viewport"*. Nothing disappears, which was the pane's actual cost. **And it is not only a phone behaviour**: on the owner's own `Test Database` at 1400×900 the date column sits so far right that the picker ends at x 1195 — 205px of window left for a 200px list plus its 6px gap — so the list opens on the **left**, measured live below |
+
+  Also learned: a fly-out needs **none** of the pane's keyboard repair — the row that opened it is
+  still there — so `tests/database-dates.test.ts` now asserts the picker has neither `MenuPaneHead`
+  nor `focusMenuRow`, and that the row it imports is `MenuSub`.
+
+  Proof: `scripts/run-dates-probe.ps1` — **77/77 at 1400×900 and 77/77 at 390×844**, disposable copy,
+  every claim read back from `/api/databases`. Section 9 now measures the *geometry*: two surfaces
+  with the calendar still behind them, the fly-out beside the row it opened (covering none of it)
+  at 1400, flipped and inside the viewport at 390, **zero pixels of scroll** inside it, the six
+  formats plus `Time format` with exactly the format and clock in use ticked, a clock and a format
+  picked there and read back from the server, the tick moving in the same surface, a row never
+  opened changing too, and the keyboard unharmed (focus opens the list, focus stays on the row,
+  `ArrowDown` still reaches the picker's own rows, one `Escape` closes both surfaces).
+  `tests/database-dates.test.ts` adds `menuStyle`'s placements as a pure test — the old squeeze at
+  164px, the hang, and the clamp that keeps either one inside the window when the row is against
+  the floor.
+
+  And on the **running app** on `:3000`, read-only, on the owner's own `Test Database` (`6/6`):
+  the picker is at x 943–1195, the fly-out at x 744–944 — flipped left, clear of the calendar's
+  row, `scrollHeight − clientHeight = 0`, one `Escape` closing both, and **0 blocked writes** with
+  the column's `config` (`{"format":"ymd",…}`) unchanged.
+
 - **B42h — "Groups, top to bottom" was furniture, and it was not the only piece** (this turn).
   *"Really? 'Groups, top to bottom' ? ... Whats this fluff text"* — and the question under it:
   *"are you even using the apple-design and emil-design skills"*. Fairly asked: the skills were
@@ -503,7 +542,97 @@ Shipped on 30 October 2026, after the last reconciliation, and each proved in a 
   evidence for a question no assertion can answer — whether the thing looks like it was made on
   purpose.
 
-- **B43a — Date: a range, two clocks, and a column that says how it reads** (this turn). The ask,
+- **B43c — `Date format` where the value is, and a pane that keeps the keyboard** (this turn).
+  The ask: *"Date format should also be accessible in the dropdown where you're selecting the
+  date … it would change the format for the whole column."*
+
+  The six rows were already written — inside the property menu's submenu. The picker now draws
+  **the same component**, and neither surface owns the list:
+
+  | | |
+  |---|---|
+  | `date-format-rows.tsx` | `DateFormatRows` (the six) and `TimeFormatRows` (the two clocks). Both surfaces import it; `tests/database-dates.test.ts` fails if either file maps `dateFormatChoices` itself, because *importing* the rows and then drawing a copy beside them is the same drift with better manners |
+  | `dateFormatLabel` | one lookup in `properties.ts` for "which format is this column on" — `iso` → **Year/Month/Day**, `long` → **Full date**, unknown → **Full date**, the same fallbacks `dateConfigOf` applies. Two rows now say this; a second copy is how they end up spelling it differently |
+  | the picker's row | `Date format   Full date ›` at the foot of the panel, under `Include time`, with the caret a submenu wears |
+  | pressing it | **it first shipped here as a body swap** — head, divider, six rows, `Time format` beneath when the column shows clocks — on the argument that a 200px surface beside a 252px one stacks on the calendar at 390px. The owner sent that back the same session (*"those options should open next to the dropdown"*): it is a **fly-out** now. See B43d |
+  | picking | writes `onConfig({ format })` — the **property's** config, so every row in the column changes — and keeps the surface open, because the person is mid-value. The bound row above the grid re-renders in the new format, which is the acknowledgement that it took |
+
+  **The bug this turn found, in code older than the feature.** Replacing a surface's body
+  removes the row that had focus, so `document.activeElement` falls to `<body>` — which is
+  *outside* the surface, where `onMenuKeys` (the arrow-key traversal) never hears another press.
+  Both panes were pointer-only rooms the moment you opened them, and `Status groups` has been
+  that way since B42f. Fixed in the one place both share: `MenuPaneHead` (`autoFocus` on the way
+  out) and `focusMenuRow(key)` + `MenuItem`'s `focusKey` (the way back in). Once the picker became
+  a fly-out (B43d) only `Status groups` still needs either half, and the test says so in both
+  directions: the pane's two halves must be there, and `date-panel.tsx` must have neither.
+
+  Proof: `scripts/run-dates-probe.ps1` — **77/77 at 1400×900 and 77/77 at 390×844**, disposable
+  copy, every claim read back from `/api/databases`; section 9 opens the picker, reads the row's
+  name and caret, opens the list, checks the six rows and that exactly the format *and* the clock
+  in use are ticked, picks a clock and a format there, and then asserts the change on a **row it
+  never opened** — that is the "whole column" half of the ask. (Section 9 was rewritten for the
+  fly-out in B43d; the keyboard half is now one focus and one `ArrowDown`, because a fly-out
+  never takes the row away.)
+
+  Also repaired, in the groups probe: *"the + selects the tag it created"* waited for the
+  **option** write and then read the cells — two writes arrive in order, and at 390px the read
+  landed between them. It now waits for the cell as well. Waiting for a claim is not the same as
+  weakening it: a lost cell write still times out and says so.
+
+- **B43b — Date formats in a person's words, and one width for every dropdown.**
+  Two asks: *"add a date format feature"* with six named formats, and *"all our Property
+  dropdowns are too wide … Notion's especially the calendar feels better and less clunky"*.
+
+  | format | the cell reads | stored as |
+  |---|---|---|
+  | Full date | `October 30, 2026` | `full` (**the default**) |
+  | Short date | `Oct 30` | `short` |
+  | Month/Day/Year | `10/30/2026` | `mdy` |
+  | Day/Month/Year | `30/10/2026` | `dmy` |
+  | Year/Month/Day | `2026/10/30` | `ymd` |
+  | Relative | `Today` · `Yesterday` · `Tomorrow` · `Thursday` · `Last Saturday` · `October 17, 2026` | `relative` |
+
+  Three things were decided rather than typed:
+
+  - **`Relative` takes the day as an argument.** `relativeLabel(day, today)` is pure;
+    `dayHead` passes `todayKey()`. A formatter that reads the clock cannot be tested on the
+    day that matters — offset 0 — and this one is wrong by one word when it is wrong.
+  - **The two retired names still mean something.** `iso` rendered `2026-10-30` and `long`
+    rendered `30 Oct 2026`; `legacyDateFormats` reads them as `ymd` and `full`, and
+    `configSchemas.date` rewrites them on the way in (`z.preprocess`). Rejecting them would
+    blank the format of any column saved before the rename — the owner's own Date column
+    stores `iso`, and now reads `2026/10/30`.
+  - **The trailing slot stopped being a sample.** `Date format   October 30, 2026 ›` was the
+    widest thing in a menu that had to fit a caret and a label; it is now the format's *name*,
+    which is what the reference shows and what let the menu narrow at all.
+
+  One width for the whole family, which is the other half of the ask. It was four numbers in
+  three files: `240` in the stylesheet (losing to an inline style), `268` at the property
+  header, `272` in the tag dropdown, `296` for the calendar — so "how wide is a dropdown" had
+  no answer and the widest box in the app was a cell menu. It is now **252** (`MENU_WIDTH`) for
+  every menu and the picker, **200** for a side submenu, both in `menu.tsx`, with the
+  stylesheet rules that duplicated them deleted. Rows went 30px → 28px, and the calendar's day
+  cells 40px → 34px wide.
+
+  Found while measuring, and fixed: **the page title clipped its own descenders.**
+  `.doc-title` is a `rows=1` textarea with `overflow: hidden` and `--lh-tight`; at 40px the
+  serif's box is ~50px inside a 47.2px line, so the tail of a "p" sat under the padding edge.
+  `padding-bottom: 0.06em` gives the ink its room without touching the leading.
+
+  Proof: `scripts/run-dates-probe.ps1` — **55/55 at 1400×900 and 55/55 at 390×844**, disposable
+  copy, real presses, each claim read back from `/api/databases`. Section 8 walks all six
+  formats through the menu and asserts the stored value *and* the rendered cell; section 9
+  measures the widths (252/252) and fails if any menu row ellipsises its own name; `Relative` is
+  asserted on a cell holding *today*, so the probe cannot start failing on a date nobody chose.
+  `tests/database-dates.test.ts` grew to 24 assertions, including every `Relative` cutoff and
+  both legacy names through `dateConfigOf` **and** `configSchemas.date.parse`.
+
+  Also repaired: `run-dates-probe.ps1`'s text-clip step had **never run** — it waits for a tag
+  chip on a fixture with no tags, so the runner always exited 1 after the probe had passed.
+  The seed now carries a Select column with one tag, and the descender measurement above came
+  out of finally running it.
+
+- **B43a — Date: a range, two clocks, and a column that says how it reads.** The ask,
   in four lines: *"Option to choose end date / Include time / Option to just select start and end
   time in one date / Make a better design and UX for it"*. The cell was `<input type="date">`
   — one day, no end, no clock, no control over how the column read, and on Windows a browser
@@ -513,8 +642,8 @@ Shipped on 30 October 2026, after the last reconciliation, and each proved in a 
   |---|---|
   | `date-panel.tsx` | the trigger (a button, like a tag cell) and the `dialog` surface: both bounds, the six-week grid, `Today`/`Clear`, and the `End date` / `Include time` rows |
   | `lib/database/calendar.ts` | pure and tested without a browser: fixed 6×7 grid, loose time parser (`930`, `9:5`, `9`), the stepper, `orderBounds` |
-  | `date.ts` | `dateConfigOf` / `dateBounds` / `dayHead` / `clockText`, and a same-day range that says the date **once**: `30 Oct 2026 14:30 → 16:30` |
-  | property menu | `Date format` (four formats, the sample on the row) with `Time format` beneath it, and `Include time` as a ticked row |
+  | `date.ts` | `dateConfigOf` / `dateBounds` / `dayHead` / `clockText`, and a same-day range that says the date **once**: `October 30, 2026 14:30 → 16:30` |
+  | property menu | `Date format` (six formats, named — see B43b) with `Time format` beneath it, and `Include time` as a ticked row |
   | `table-view.tsx` | a date column is born **220px** instead of 180, because `31 Oct 2026 → 1 Nov 2026` is what the column is *for* |
 
   The decisions worth the words:
@@ -542,20 +671,650 @@ Shipped on 30 October 2026, after the last reconciliation, and each proved in a 
   clicking coordinates outside the page on a column that had scrolled off a phone. Both now
   `scrollIntoView` and assert the point is *reachable* before pressing. See `TESTING.md`.
 
-  Proof: `scripts/verify-db-dates.mjs` via `scripts/run-dates-probe.ps1` — **34/34 at 1400×900
-  and 34/34 at 390×844**, disposable copy, real presses, and every claim read back from
-  `/api/databases` (a day press, the end, both clocks, `Clear`, `includeTime`, `format`). The
-  text-clip probe runs on the same seeded page afterwards (3/3). `tests/database-dates.test.ts`
-  (22 assertions) pins the grid, the parser, the collapse, and two guards by *file scan*: the
-  cell editor no longer contains `type="date"`, and the menu's format rows come from
-  `dateFormatChoices` rather than a list written in the menu. Re-run after the harness change:
-  tags 17/17 ×2, status groups 44/44 ×2, sort 21/21 ×2, reorder 26/26 ×2, submenu 9/9 ×2.
+  Proof: `scripts/verify-db-dates.mjs` via `scripts/run-dates-probe.ps1` — disposable copy, real
+  presses, and every claim read back from `/api/databases` (a day press, the end, both clocks,
+  `Clear`, `includeTime`, `format`). It was 34 assertions here; B43b grew it to **55**, re-run at
+  **55/55 on both widths**. `tests/database-dates.test.ts` (22 assertions) pins the grid, the
+  parser, the collapse, and two guards by *file scan*: the cell editor no longer contains
+  `type="date"`, and the menu's format rows come from `dateFormatChoices` rather than a list
+  written in the menu. Re-run after the harness change: tags 17/17 ×2, status groups 44/44 ×2,
+  sort 21/21 ×2, reorder 26/26 ×2, submenu 9/9 ×2.
+
+  **The text-clip step in this runner never ran.** It waited for a tag chip on a fixture with no
+  tags, timed out, and exited 1 after the probe above had passed — see `TESTING.md`. B43b seeds
+  the chip; the step now measures 25 boxes at 1400 and 26 at 390, and it is what found the page
+  title clipping its own descenders.
+
+- **B44 — the Checkbox cell: one position, two values.** The owner: *"It's not vertically in the
+  center of the cell. an unchecked checkbox has a different position than the checked checkbox."*
+  Both were true and both were one cause: the tick was an `inline-grid` rendered straight into the
+  `<td>`, so it lived in the cell's **line box** — which is `vertical-align: top` here (4px above,
+  12px below), and whose baseline for an `inline-grid` is *the baseline of its contents*, so an
+  empty box sat on its bottom edge and a ticked one sat on the `✓`'s baseline, 2.5px lower. It now
+  renders inside `.db-check-cell`, a flex row with `height: 100%`: a flex item is blockified, no
+  baseline can reach it, and it is centred in the cell's *content* box at any row height. The
+  three states (`true`, `false`, untouched `null`) now measure 8/8 with the same top offset, and
+  pressing the tick moves it by zero pixels. Reasoning in `DECISIONS.md`; the guard is
+  `tests/database-checkbox.test.ts` (4 assertions, both halves falsified on purpose).
+
+  Proof: `scripts/verify-db-checkbox.mjs` via `scripts/run-checkbox-probe.ps1` — disposable copy on
+  `:3105`, fresh seed per width, **21/21 at 1400×900 and 21/21 at 390×844**, every write read back
+  from `/api/databases`. Read-only on the owner's own page (`Database Test`, four cells: one
+  `false`, three `true`): all four measure **8 above and 8 below**, each on its cell's centre
+  line, **0 blocked writes**, and the screenshot shows the empty box and the three ticked ones on
+  one line.
+
+  Found on the way, and fixed: **the B40/B41 runner was reporting failure as success.**
+  `verify-database-b40.mjs` caught its own exception, printed `probe failed: …`, then called
+  `report()` — so a run that died at the first step printed `OK: 0/0 passed` and exited 0. Two of
+  its steps had been dead for turns. Its catch now records a failing check; that made two real
+  failures visible, and both were the probe, not the app: a cold `next dev` outrunning its 20s
+  `waitFor: the table` at 1400 (a minute now, plus a page-route warm-up in the runner), and a
+  header press at 390 aimed at a column that had scrolled off the page (it now scrolls, and
+  asserts the point is *reachable*). Back to **15/15 at 1400 and 9/9 at 390**, which is where
+  `STATE.md` said it stood before. See `TESTING.md`.
+
+- **A row opens from its `Open` button, and from nowhere else (B46).** The owner: *"A lot of the
+  times when editing different cells i accidentally or even intentionally double click, which
+  throws me inside the page ... i should only be able to open up the page by clicking the
+  designated open button which we already have."*
+
+  The `<tr>` carried `onDoubleClick={() => onOpenRow(row.id)}` and `.db-row-open { cursor:
+  pointer }` advertised it. Three faults with one shape. The handler sat on the element that
+  **contains** every cell, so it saw every press and could not tell a rename from a double press
+  meant to select a word — which is what a double press *is* in a text field. The pointer cursor
+  is the link cue, on a row that is not a link. And the row already shipped a named `Open`
+  button, so the double-click was a second route to the same page that nobody could see.
+
+  Now the row element carries no press handler at all, `.db-row-open` is deleted, and
+  `entry-icon.tsx` lost the `onDoubleClick={(event) => event.stopPropagation()}` that existed
+  only to protect the icon from that handler. `onOpenRow` has exactly one caller, the button.
+
+  Proof: `scripts/verify-db-row-open.mjs` via `scripts/run-row-open-probe.ps1` — disposable copy
+  on `:3106`, fresh seed per width, **18/18 at 1400×900 and 18/18 at 390×844**: no pointer cursor;
+  a double press inside a text cell leaves the address bar, the table, the caret and the
+  half-typed `abc` intact; a double press on a row's name does not open it; a double press on a
+  value tick does not open it; a `dblclick` dispatched straight at the row opens nothing; and
+  `Open` is `pointer-events: none` until hovered and then opens the row's own page. The runner's
+  **`-Before`** switch rebuilds the copy as the pre-fix tree and asserts the probe **fails**
+  there — it does, 3/18, with the double press landing on `#fcce28bf…` from `#45703666…` and the
+  table gone. Read-only on the owner's own `Database Test` page: 5/5, **0 blocked writes**.
+
+  Found on the way: `browser-session.mjs` had no double press, and two `b.mouse` calls would not
+  have been one — Blink dispatches `dblclick` from the **second press's `clickCount`**, so a
+  probe that "tests double-click" with two counted-as-one presses never reaches the handler at
+  all. `b.doubleMouse` sends `clickCount: 2`. See `TESTING.md`.
+
+  Regressions after the change: B40/B41 **15/15 at 1400, 9/9 at 390** (rerun), checkbox **21/21
+  ×2**, dates **77/77 ×2** with text-clip **3/3 ×2**.
+
+- **A URL cell reads as a link and opens from a marked opener (B48).** The owner: *"by default,
+  when a link is entered, it should hide the `https://www` part of the link ... there needs to be
+  an option on the dropdown to show the full link ... links should also be clickable if they are
+  on the URL property cell."*
+
+  Three asks, and only one of them is a formatter. `link.ts`'s `format` drops the scheme, the
+  `www.` and a lone root-path slash — **presentation only**, because `coerce` still stores the
+  address whole (`example.com` → `https://example.com/`), so a filter, a sort or the MCP surface
+  never sees half a link. The measurement that makes it worth doing: the full address is **196px
+  of ink in a 159px field** at the default 180px column; the shortened one is **117px**. A link
+  cell was clipping the part you recognise.
+
+  `configSchemas.url` gained `fullUrl` (default `false`), which is the whole reason this is not a
+  one-line change: the schema was `.strict()` for a type with no settings, so a toggle writing
+  that key would have been refused with a 400 — a switch that silently does nothing. The property
+  menu gained **`Show full URL`** with a tick, beside `Hide`, writing the *property's* config.
+
+  The cell is the interesting half. The opener is a real `<a href>` — `target=_blank`,
+  `rel=noopener noreferrer`, `title` carrying the full address, because the cell cannot — and it
+  lives in `url-cell.tsx`, drawn by `.db-open`'s own reveal rule: `opacity: 0` and
+  `pointer-events: none` until the row is hovered or something inside it has focus. **The text
+  itself does not navigate.** A press in it is how a caret gets into it; that is what every column
+  does on that press, and the owner's last turn was the same lesson one gesture earlier. It is
+  what the row's `Open` button already established, applied one level down. Read-only tables have
+  no field to compete with, so there `UrlText` makes the text the link.
+
+  Two smaller things came out of *looking* at it rather than asserting it: the empty cell's hint
+  was `https://` — a *prefix* teaching a scheme the column no longer shows — and is now
+  `example.com`; and the mark was drawn a shade greyer than the `Open` button it is the sibling
+  of, so it now carries the same `var(--text)`.
+
+  Proof: `scripts/verify-db-url.mjs` via `scripts/run-url-probe.ps1` — disposable copy on
+  `:3107`, fresh seed per width, **30/30 at 1400×900 and 30/30 at 390×844**, every claim read back
+  from `/api/databases`: the cell reads `example.com/docs` while the row still holds
+  `https://www.example.com/docs`; a typed `newsite.test` is stored as `https://newsite.test/` and
+  read back bare; the empty cell offers nothing to open; the mark is invisible **and untakeable**
+  at rest, then on the cell's centre line 4px from its right edge; a **double press on the words**
+  leaves the page and the caret where they were; **pressing the mark opens the address as a new
+  page target at the browser's debugging port** while this page and the caret stay put; and
+  `Show full URL` exists once, is off, writes the column's config with every cell byte-identical,
+  flips the cell to the full address as the tick moves in the surface that stayed open, and flips
+  back. `-Before` rebuilds the copy with the formatter reverted and the mark always clickable and
+  the probe **fails, 22/30**, naming eight checks.
+
+  Found on the way, and worth the space: **the first version of the fits check was a lie that
+  passed.** It measured the cell's ink with a canvas — in the field's own computed font — but it
+  grabbed the `<td>` instead of the `<input>` (`CELL(...) ?.querySelector(...)` binds the `??`
+  before the member access), so it measured the string `"undefined"` and reported `62px`, which
+  looked plausible. The tell was the caption printing `reading undefined`. It now says
+  `117px of ink in 159px of field, reading "example.com/docs"`, and on the pre-fix tree
+  `196px of ink in 159px`. **A measurement is only a measurement if its output names what it
+  measured.**
+
+- **The two openers stay opaque with the pointer on them (B48b).** The owner, on the URL mark:
+  *"the button to open the link is covering the link which is good but on hover i can see the text
+  behind it when it overlays it."*
+
+  One CSS fault, in two places, and it is a shorthand trap. The mark was filled with
+  `background: var(--surface)` and its hover state was `background: var(--hover-strong)` —
+  `rgba(255,255,255,0.07)`, in both themes. `background` is not a second coat of paint over the
+  fill; it **replaces** it. So the fill became a 7% white wash, and a wash is transparent: the
+  address under the box read through the box at exactly the moment a person reached for it. The
+  row's `Open` chip — the same control over the end of the name — had the identical line and the
+  identical bug. Both now keep `background-color: var(--surface)` and tint the hover as a
+  `background-image: linear-gradient(…)` layer.
+
+  This is the bug that computed style cannot see: `getComputedStyle` would have reported
+  `rgba(255,255,255,0.07)` and a style assertion would have nodded. It is measured as paint —
+  `browser-session.mjs` gained `b.pixel(x, y)`, a 1×1 screenshot decoded to an RGB triple in the
+  **viewport** space every caller's `getBoundingClientRect()` speaks (`Page.captureScreenshot`'s
+  `clip` is in page coordinates, which was measured rather than assumed). A saturated patch is
+  drawn in each control's own box, under it, and three interior pixels are compared with the patch
+  and without: **0/255 difference** over both openers, at both widths. With the fix reverted the
+  same three pixels read `38,37,37 → 255,18,18` — 217/255 — and the screenshot shows the address
+  through a pink box.
+
+  Proof: `scripts/verify-db-url.mjs` § 2b, **30/30 at both widths**, `-Before` **22/30**;
+  `tests/database-url.test.ts` pins it structurally, and was falsified by restoring the shorthand
+  (it fails by name); read-only on the owner's own `Database Test` page: **3/3**, mark and `Open`
+  both **0/255**, **0 blocked writes**.
+
+  Also fixed in the probe: the "cell reads the full address" check read the cell in a *separate*
+  evaluation from the one it captioned, so it could assert the short form and print the full one —
+  a failure that reads as a pass. It reads one value until it settles and reports that value.
+
+- **The Place column is a search engine, and a picked place carries its point (B49).** The owner:
+  *"whenever a user clicks on a cell a dropdown appears. The cell is now basically a search engine
+  for addresses and locations ... the queries show immediately as a new letter hits the cell."*
+  And underneath it, the constraint that shaped the data: *"later we will add a map view for the
+  database so this is an important part to build the right infrastructure."*
+
+  **The value has two shapes, and the second one means something.** `"12 Rue de Rivoli, Paris"` is
+  a typed address. `{ address, name?, lat, lng, id? }` is a picked place, and the record means
+  *this place has a point* — a record without one is coerced back to the string, so a filter, a
+  cell and a map cannot disagree about the same row. This is a reversal of what `place.ts` said
+  when it shipped ("coordinates go in metadata, not inside this value"), and the map view is the
+  reason: a map needs one point per **row**, a row's data is its cells, and a point kept in a
+  side-property would be edited out of step with the address the first time somebody types over
+  one. `placeCoordinates(value)` is the map's whole entry point, and it answers `null` for a typed
+  address rather than plotting 0,0 in the Gulf of Guinea.
+
+  **The only outbound request in the app lives on the server.** `src/server/places.ts` — one
+  endpoint, a ten-minute `globalThis` cache, `Raspberry/0.1` as the user-agent, a 4s timeout,
+  `PlaceServiceError`, and `/api/places/search` in front of it with its own 180/min bucket (the
+  one route whose call rate is set by a person's typing). A browser-side fetch would have been
+  twenty lines shorter and would have sent the owner's IP, every half-typed home address and a
+  user-agent we do not control to a third party. **The provider is Photon, not Nominatim**, and
+  that is a policy rather than a preference: OSM's Nominatim usage policy forbids "auto-complete
+  search" outright, which is the entire feature. `RASPBERRY_PLACES_URL` moves the endpoint and
+  `off` disables it; the probe runs against a loopback fixture for exactly that reason.
+
+  **A keystroke is not a request.** 260ms of quiet, two characters minimum, a one-minute memo on
+  the client and a ten-minute cache on the server, `AbortController` on every superseded query
+  (or a slow first answer lands under a fast second one), and an empty answer is cached — "nothing
+  is called that" is a real answer, and re-asking it on every backspace is how a free service gets
+  withdrawn. A *failure* is never cached.
+
+  **The field is the search box**, which is the only part of this that is a design decision rather
+  than a data one. A press puts the caret in (that is how the URL cell's lesson generalises: a
+  press on the words of a cell is how you edit it), and a `role="listbox"` `MenuSurface` hangs off
+  the field with the focus **never leaving it** — the arrows walk the results through
+  `aria-activedescendant`, `Enter` takes the highlighted row, `Tab` commits what is typed. The
+  first `Escape` dismisses the list and leaves the caret; the second gives the cell back its
+  value. It is `open` on press *and* on focus, and the press half is not redundant: after a pick
+  the caret is already in the field, so the next press fires no `focus` event — a cell that opened
+  on focus alone was a cell you could not reopen without clicking away first (found by the probe,
+  not by reading the code).
+
+  **Every state that is not a result still offers `Use "…"`**, because this column was freeform
+  text before it was a search engine: nothing found, search switched off, provider unreachable all
+  end in "keep what I typed" rather than in a dead end. `Nothing found for "x"` is about the world;
+  `Place search is off` is about this app's settings; `The place service could not be reached` is
+  about the network — three sentences, never one empty list, because rendering all three the same
+  way teaches a person to retype a correct address. The row sits under a hairline: beside two
+  places called *Eiffel*, `Use Eiffel` read as a third place until a divider said otherwise (seen
+  in the screenshot, not in an assertion).
+
+  Proof: `scripts/verify-db-places.mjs` + `run-places-probe.ps1`, **44/44 at 1400×900 and 44/44 at
+  390×844** against a loopback fixture, every stored claim read back from `/api/databases`; the
+  same probe **`-Before`** fails as it must (see B50 for what `-Before` now rebuilds).
+  `tests/database-place.test.ts` pins both value shapes, the `[lng, lat]` order, the
+  name/context split, the three-key de-duplication, `fits` reading the address rather than the
+  record, the endpoint resolution and the cache. Also fixed on the way: a Place column had **no
+  default icon** (`DEFAULT_PROPERTY_ICON` fell through to `text`), so it now wears `map-pin` in its
+  header and in its own result rows.
+
+- **Search results are ranked here, not taken from the provider in the order it sent them (B50).**
+  The owner: *"Search doesnt work the best yet ... Querrying 'Rašica 53' — on Notion the first
+  result is 'Rašica 53, 1315 Velike Lašče, Slovenia'; on Raspberry the first result is '53 Rašice'
+  in Slovakia. Querrying 'Grahovo Brdo 1' — on Notion the first result is 'Grahovo Brdo 1, 6210
+  Sežana, Slovenia'; on Raspberry the first result is 'Turistična kmetija Mahnič' which is
+  technically on the right address but display name is not right. Ofcourse I dont want you to fix
+  just those 2, they are just showing that there is a global problem that needs fixing."*
+
+  **What the data actually contains was measured first, because two complaints turn out to be two
+  different problems.** Overpass, `addr:street=Rašica` inside Slovenia: the street has **two mapped
+  addresses in the whole country**, 40 and 12a. House 53 is not in OpenStreetMap, so no OSM-derived
+  geocoder can return Notion's row — Notion is not one. That is why this turn can only put the
+  village on top and **B51** is what puts the address there. `Grahovo Brdo 1` *is* in OSM as a
+  single node tagged `name=Turistična kmetija Mahnič`, which is why the answer was right and the
+  *label* was wrong.
+
+  **So an address-shaped query is asked twice.** `Rašica 53` is a name and a door on it. Photon
+  treats the trailing number as the thing to satisfy and lets the name go fuzzy — the real top ten
+  for that query were ten streets ending in 53 across five countries, and the village was not in
+  it. Asked as `Rašica`, the same index answers correctly and instantly. `providerQueries` therefore
+  sends the query as typed (which finds the door when the door exists) *and* without the number
+  (which finds the street it is on when it does not), and the two answers are merged into one pool.
+  One pass failing does not lose the other.
+
+  **Then the pool is scored**, in `place.ts`, which is pure and testable: folded exact match 1.0,
+  typing-forward 0.9, token-prefix 0.85, all-tokens 0.7, and a Sørensen–Dice similarity **capped at
+  0.45** when the query was an address — a near-miss name is a different word, and the number alone
+  cannot tell two countries apart. On top of that: a house number that disagrees is a different
+  door (−0.65), a result with no number at all is the street it is on (+0.12), and the best
+  *credible* row decides a **country** that gets a small lift, which is how the Slovenian rows come
+  up together. A relevance floor drops the different-country near misses — **for address queries
+  only**, because a name has no such failure mode and searching "Eiffel" should still offer the park
+  at its foot (that distinction was found by breaking the Eiffel assertion, not by reasoning).
+
+  **A row's bold line is whichever field answered the query.** `Grahovo Brdo 1` now heads with the
+  address and puts the farm on the dim line, keeping it in the stored `name` — one place, two
+  sentences: `Grahovo Brdo 1` (where it is) and `Turistična kmetija Mahnič, 6210 Sežana, Slovenija`
+  (what else is true of it). The address itself is the postal line, with the farm's name not in it.
+  The **word order repeats what was typed**: Slovenia writes the street first, France the number
+  first, and a Photon answer has no formatted address to borrow — so the order of the query is the
+  only signal available. And when a house number is typed and nothing carries it, this turn's
+  surface says `No house 53 in the map data — these are the places around it`; **B51** replaces
+  those rows with the address that was typed and rewrites that sentence.
+
+  **The provider is a free service and was treated like one, after it cut this machine off.**
+  Measured: about twenty requests inside two minutes and the public Photon instance stopped
+  answering at all — 503, then TCP timeouts, for hours, while Nominatim and example.com kept
+  answering in under a second. So the typing pause went 260ms → **380ms**, an address query is
+  still at most two requests, a 5xx is retried **once** (a refused connection is not briefly busy
+  and is not retried), a **circuit breaker** opens after three consecutive failures and stops asking
+  for thirty seconds, and a stale cache answer (up to an hour old) is used in place of an error.
+  `/api/places/search` now answers **503 `places_busy`** separately from **502
+  `places_unavailable`**, and the cell says "busy — try again in a moment" rather than implying the
+  person's address or network is wrong. Verified on the live dev server while the provider really
+  was blocked: `Rašica 53` → 502 in 4076ms, the next query → 503 in 12ms.
+
+  **One bug this turn created and then killed.** The cache is parked on `globalThis` so a hot reload
+  does not cold-start it, which means it outlives the shape of the file that wrote it: entries from
+  the previous version (`{ at, hits }`) have no `features`, so every search answered "nothing
+  found" on the live server until the process restarted. Caught by calling the live route instead
+  of trusting the tests, and fixed by refusing an entry that no longer has the shape of an answer.
+
+  Proof: `run-places-probe.ps1` **44/44 at 1400×900 and 44/44 at 390×844** as it stood at this turn
+  (the same file scores 50/50 after B51, which added six checks) — including the two questions
+  reaching the fixture, the Slovenian village first, no row from another country, the `No house 53`
+  note, and `Grahovo Brdo 1` heading with the farm on its dim line. The same probe **`-Before`**
+  (ranker neutered: provider order, own names) scored **39/44** and its five failures printed the
+  owner's exact complaints — `{"name":"Rašice 53","context":"982 62 Rašice, Slovensko"}` and
+  `{"name":"Turistična kmetija Mahnič","context":"Grahovo Brdo 1, 6210 Sežana, Slovenija"}`.
+  `tests/database-place-ranking.test.ts` — 16 assertions against the rows Photon really returned,
+  plus `providerQueries`, the two-pass merge, the breaker, the stale answer and the shape-checked
+  cache entry.
+
+- **A typed house number is never dropped: the address is composed onto the road that number is on
+  (B51).** The owner, on the result of the ranking: *"Its still not perfect ... Querry doesnt give
+  Rašica 53, only Rašica. Palmejeva ulica 28 doesnt get shown on the querry either."*
+
+  **`Palmejeva ulica 28` was measured before anything was changed, and it already worked** — the
+  live route answered `{"label":"Palmejeva ulica 28","context":"1000 Ljubljana, Slovenija"}` in two
+  rows, and Photon has that door (`type=house, osm_key=building, housenumber=28`). Whatever the owner
+  saw, it was not the ranking: the likely cause is the provider having been blocked at the time
+  (`STATE.md` B50 — it cut this machine off for hours), which the cell reports as *busy*. No code
+  was changed for it and the probe now pins the answer.
+
+  **`Rašica 53` is not findable, so it is composed.** House 53 does not exist on that road in
+  OpenStreetMap, so no ordering of the provider's rows can produce it. Instead: when the number is
+  typed and **no** result carries it, the rows become the address that was typed, anchored to a
+  place that could plausibly hold it. Two rules decide the anchor, and both are about what a house
+  number is — a door is an address **on a road**, so roads are what is looked at; and a road name
+  exists in many settlements, so the road is read **where most of that name's own roads are.**
+  Measured: `Rašica` returns four roads in Velike Lašče and two in Ljubljana, and the only two houses
+  the map really has on that road (40 and 12a) are both **1315 Velike Lašče** — which is exactly the
+  postcode Notion shows, arrived at from data rather than by hard-coding it. The second row is
+  `Rašica 53, 1217 Ljubljana, Slovenija`, because which village somebody means is not knowable here
+  and offering both beats being confidently wrong.
+
+  **The point is the road's, not the door's, and the value says so.** `approx: true` rides on the
+  hit and into the stored value (`PlaceValue.approx`), `placeReading` exposes it as
+  `approximate`, and `coerce` **keeps** it — a `coerce` that dropped it would turn a road back into
+  a doorstep on the way through the server. The map view is the reason: a marker whose point is a
+  road centroid must not be drawn like a door. The cell still reads only the address, because an
+  approximation is still the address somebody typed. The surface says
+  `No house 53 in the map data — it is placed on the road, not the door`.
+
+  **A landmark is not an address space.** `addressable` allows roads, and settlements when no road
+  is in the answer at all — so "Eiffel 1" keeps the tower and the park beside it instead of
+  inventing "Eiffel Tower 1". `readQuery` also gained `numberText`, the number as typed, because a
+  composed row repeats the address back and `12A` is not `12a` to the person who typed it.
+
+  **Two rules were falsified before they were trusted**, by mutating the source and watching the
+  named test go red: dropping the settlement count from the group order (the first row becomes
+  Ljubljana) and counting every addressable row instead of roads only (three Ljubljana districts
+  outvote one Velike Lašče road). Removing the `approx` from `coerce` fails the storage test by
+  name; allowing a landmark as a host fails the tower test and the neighbours test.
+
+  Proof: `run-places-probe.ps1` **51/51 at 1400×900 and 51/51 at 390×844** — the first row is
+  `Rašica 53`, it is placed at `1315 Velike Lašče` and the Ljubljana row is beside it, pressing it
+  stores `Rašica 53, 1315 Velike Lašče, Slovenija` **with a point and `approx: true`** read back from
+  `/api/databases`, the cell then reads that address, and the surface is the map card (B52). The same probe
+  **`-Before`** (ranker neutered *and* the composition removed) scores **40/51** at both widths, and
+  two of its failures print `{"name":"Rašice 53","context":"982 62 Rašice, Slovensko"}` — the owner's
+  complaint, reproduced. `tests/database-place-ranking.test.ts` grew to 19 tests (three of them
+  new) and `tests/database-place.test.ts` to 15; **560 passing**, `tsc` clean, `check-docs --full` OK.
+
+  **What is still not Notion.** Nothing about this makes OpenStreetMap have the door. The row is the
+  address plus the road's point; a real reverse geocode would say "somewhere on Rašica". The next
+  honest step is the map view, which reads `placeReading(value).approximate` and draws the two kinds
+  differently — that is the infrastructure this turn built.
+
+- **Picking a place turns the dropdown into a map of it (B52).** The owner, with two screenshots:
+  *"When I do select a location in notion, the dropdown gets overwritten by a map with a pin on my
+  selected location ... lets implement that too on Raspberry."*
+
+  **The surface now has two shapes, and which one you get is not a mode.** `placeCard()` in
+  `property-types/place.ts` answers a card or `null` from three facts: the value has a point; the
+  field still reads that address; and a pick whose write is still in flight wins over the value the
+  server has not echoed back yet. Because it is derived rather than stored, typing one character
+  turns the map back into the list on its own — there is no "which view am I in" flag to get wrong.
+  A cell holding a *typed* address still opens the list, because a sentence is not a location.
+  Picking no longer closes the surface: the list is *replaced*, which is the reference behaviour.
+
+  **The squares come from this app, not from OpenStreetMap.** `/api/places/tile?z&x&y` →
+  `src/server/tiles.ts` → `RASPBERRY_TILES_URL` (OpenStreetMap by default, `off` to draw the pin on
+  a plain surface and say so). An `<img src="https://tile.openstreetmap.org/…">` is twenty lines
+  shorter and puts the address somebody just picked into a stranger's log four times per cell, with
+  a user-agent we do not control — which is exactly what OSM's tile policy exists to stop. The proxy
+  also keeps a byte-budgeted `globalThis` cache, checks the content type (a 200 carrying an HTML
+  "slow down" page is not a tile), and does **not** retry: a view is four squares and a missing one
+  is a hole, not a lost answer.
+
+  **The arithmetic is a library, because the map view is next.** `src/lib/geo/mercator.ts` is the
+  projection and the tile grid; `src/lib/geo/preview.ts` is only the *policy* — a 226×150 box, at
+  z16 for a door and **z15** for a composed address, because a road centroid must not be drawn as
+  confidently as a door. No React and no fetches in either, so the database map view can import the
+  first and write its own second.
+
+  **One bug was found by looking, not by asserting.** The mark's `×`, the credit and the arrow all
+  worked; the map did not. `filter: invert(1) hue-rotate(180deg) brightness(.92)` made every street
+  a black line on a near-black ground — the standard dark-mode trick for a light basemap, which at
+  this size and contrast produced a rectangle of noise. Measured by rendering four variants at 3×
+  and comparing them; the shipped one is `invert(.9) hue-rotate(180deg) brightness(1.18)
+  contrast(.82) saturate(.55)`, and the light theme turns the filter off entirely. The `×` also wore
+  a boxed 28px border because the class was written without `db-menu-back` — visible only in the
+  screenshot.
+
+  Proof: `run-place-map-probe.ps1` **34/34 at 1400×900 and 34/34 at 390×844**, against a geocoder
+  fixture on :3118 and a **tile fixture on :3119 whose squares encode their own `z/x/y` in their
+  pixels** — so "which square is where" is a measurement, not a picture, and a square drawn one
+  position off fails by name. It also proves the negative: **every request the page made stayed on
+  this machine**, and with the route made to answer `503 tiles_off` the card says the tiles are
+  switched off rather than that the map is broken. **`-Before`** (the card removed, the list closed
+  on every pick) scores **10/34** and prints the old behaviour verbatim: `card false, role
+  "listbox", rows 2` and `1 searches: […q=Eiffel%20Tower…]`. `run-places-probe.ps1` was re-run with
+  tiles off and its two "a pick closes the surface" claims rewritten for the card: **51/51 ×2**.
+  Tests: `tests/geo-mercator.test.ts` (13), `tests/database-place-tiles.test.ts` (8) and seven new
+  cases in `tests/database-place.test.ts` — **588 passing**, `tsc` clean, `check-docs --full` OK.
+
+  Two things this deliberately does not do: it does not make the **map view of a database** (that is
+  B53, and it is why the arithmetic is a library), and it does not add a **keyboard route to the
+  card** beyond Tab — the field keeps the caret, so the arrows and Enter still belong to the table.
+
+- **The way out of a place is Google Maps, asked in coordinates (B52b).** The owner: *"for the
+  external link to open it in 'openstreetmap' we could probably do it so it opens in google maps
+  since its probably just a link with the address right?"*
+
+  The corner arrow went to `openstreetmap.org/?mlat=…&mlon=…#map=…`, a URL that only parses for
+  somebody who already knows what OpenStreetMap is. It now goes to
+  `https://www.google.com/maps/search/?api=1&query=lat,lng` — Google's documented keyless form — and
+  the tooltip and the accessible name say *Google Maps*.
+
+  **The query is the coordinate, and that is the part of the suggestion that needed answering.** A
+  link built from the address is what most people would write, and it is wrong here: Google
+  re-geocodes that sentence against its own database, so `Rašica 53` opens on whatever door *Google*
+  thinks that is rather than the point the pin was drawn on a pixel earlier — and for a composed
+  address we drew the road while Google would have the door. A coordinate cannot be re-geocoded, and
+  it cannot be missing: every card exists only because the value holds a point. Six decimals is
+  Google's documented maximum (~11 cm), which is what the provider gave us rather than a rounding of
+  it.
+
+  `osmLink(point, zoom)` became `mapLink(point)` — the zoom was only ever there for OSM's `#map=`
+  fragment. The credit stays `© OpenStreetMap contributors` linked to their licence, because the
+  *squares* are still theirs and that is what the licence asks. This is the app's third outside
+  destination and the only one that costs nothing at rest: a link is not a fetch, and nothing is sent
+  until a person presses it. `.env.example` says so beside the two switches that actually configure
+  requests, because "the only one" was already false once.
+
+  Proof: `run-place-map-probe.ps1` **34/34 at 1400×900 and 34/34 at 390×844**, with the `href`
+  asserted **whole** and the address text provably absent (`no %20, no +, no Eiffel`). Mutating
+  `mapLink` back to the OSM URL fails **exactly one named check at both widths — 33/34** — printing
+  the old href, so the check is not decoration. `-Before` re-measured, not assumed: **10/34 ×2**, with
+  the link among its 24 failures. `tests/geo-mercator.test.ts` pins the whole string, the clamp
+  (`lat 91` → `85.051129`), and that the query is two numbers with nothing escaped;
+  `tests/database-place.test.ts` fails if the card spells a Google URL itself instead of calling
+  `mapLink`. **588 passing**, `tsc` clean, `check-docs --full` OK.
+
+  One thing this could not do: the owner's live Place column holds **zero cells** (read-only sqlite,
+  so nothing was written and there is nothing to reinterpret), so there was no card on their own
+  instance to open this turn. The proof is the disposable copy.
+
+- **Files & Media became an upload field (B53).** The owner: *"it should be an upload field that
+  holds one or more files. Lets develop it to make it functional and make a good solid and simple
+  ux for it."*
+
+  Until this turn the column **was not an upload field at all**. `files.ts` had held the value
+  shape since B26 — a list of `{id,name,mime,size}` references into the content-addressed store —
+  but `cell-editor.tsx` had no branch for the type, so a Files cell fell through to the shared
+  text field: typing "holiday.png" stored a reference to bytes nobody had uploaded, and the cell
+  then read back a file that 404s. The fix is a branch, and everything after it is the UX.
+
+  **The cell is a button, and it says what is in it.** One 22px tile — the picture for an image,
+  an extension badge (`PDF`) for anything else — then the first file's name, then `+2`. A table
+  cell is 120–220px and a row is 32px; five attachments cannot be read there, and a heap of
+  thumbnails says "there are some" without saying *which*. `Empty` when there is nothing, which
+  is the same word every other empty cell shows.
+
+  **The same surface a tag or a date opens.** `MenuSurface`, 252px, `role="dialog"` because it
+  holds a file picker, links and buttons: the count as its head, `Upload` beside it, then a row
+  per attachment — tile, name (a real `<a>` to its own bytes, in a new tab), size, `×`. Two ways
+  in and both are visible: `Upload` opens the OS picker; dropping files on the cell or the panel
+  is the second. Drag-and-drop alone would be invisible — a gesture you already have to know —
+  so the empty panel says *Drop files here, or press Upload.*
+
+  **One write per batch, and a refusal does not sink it.** Files go up one at a time through
+  `editor/media.ts`'s `uploadFile`, the same function a pasted image uses, each spinner replacing
+  the last; the cell is written **once**, after the last one lands, with everything that did. A
+  refused file — an empty one, say — is a red line in the surface naming it and the server's own
+  sentence, and the files that landed are still committed. **Removing a file removes the
+  reference, never the bytes**: the store is content-addressed, the same photo can be attached to
+  three rows, and a delete that swept the blob would empty the other two cells. Nothing in this
+  app deletes an upload.
+
+  Three smaller things the same pass had to fix: the `Upload` button is `.db-mini-btn`, the
+  control `.db-retry` already was (renamed, because a second caller makes a name a lie); the
+  cell-as-button box that tags and dates each declared for themselves is now **one selector
+  list** with `files` in it — a third copy is exactly the "redraw it instead of reusing it"
+  mistake; and a Files column's icon is a **paperclip**, not `Folder`, because a folder in this
+  app is a *page container*, the same confusion as the `+` that meant "add a row".
+
+  Proof: `scripts/run-files-probe.ps1` (disposable copy :3110, fresh seed per width) —
+  **37/37 at 1400×900 and 37/37 at 390×844**, with the uploads *real*: the probe drives the
+  panel's own `<input type=file>` through CDP, then reads the stored value back from
+  `/api/databases` and fetches the bytes from `/api/files` and compares them byte for byte. It
+  proves the batch where one file is refused still commits the other, that the removed file's
+  blob still serves `200`, and that a real `DataTransfer` dropped on a cell uploads like a chosen
+  file. **`-Before`** (the `files` branch struck out of `cell-editor.tsx`, so the column falls
+  back to the text field) **fails by name at both widths** — *a Files cell has no text field in
+  it* — and the runner refuses to start the app if the rewrite did not apply. Regressions re-run,
+  not assumed: **dates 77/77 + 3/3**, **tags 17/17**, **b40 15/15 + 9/9**, **row-open 18/18**,
+  all at both widths. `tests/database-files.test.ts` adds 12 assertions — the value shape,
+  ordering, de-duplication by id, the size and badge helpers, `fileHref` (and a guard that the
+  cell calls it rather than spelling the URL), and the two reuse guards above. **600 passing**,
+  `tsc` clean, `check-docs` OK.
+
+  One thing this did not touch: the owner's live `Test Database` has **one** Files column and
+  **zero** cells in it, so there was no reference of theirs to reinterpret and nothing of theirs
+  migrated. Opening their own page with the write guard installed, read-only, passed **6/6**: all
+  four Files cells are buttons with no text field, each reads `Empty`, the panel opens as a dialog
+  headed *No files* with `Upload`, and **0 writes were attempted**.
+
+- **A file can be saved, and an image can be looked at (B54).** The owner: *"Lets add a download
+  button and also if hovering over a file a preview box appears which shows the image (only if an
+  image file or svg)."*
+
+  **Saving is a request, not an attribute.** Every type the store shows in place — images, audio,
+  video, PDF — is served `inline`, which is right for the name link and wrong for a save. `<a
+  download>` would have been one word and would have been a *hint*: the browser may ignore it, and
+  it cannot name the file as reliably as the `Content-Disposition` the store already builds from
+  the stored name. So `?download=1` asks the store to answer `attachment` for the same bytes, and
+  `fileDownloadHref` is the only place that spells it. It can only make a response *more*
+  restricted: a `.html` upload is an attachment either way. `↓` sits in the same bare 24px well as
+  `×`, and **before** it, so the destructive control is still the last thing a pointer travelling
+  off the row meets.
+
+  **The preview is one rule, and it is `isImageFile`.** The ask — "only if an image file or svg" —
+  is a single condition, because `image/svg+xml` already starts with `image/`. Giving the peek its
+  own list of types is how the tile and the preview drift apart six months from now, so
+  `tests/database-files.test.ts` fails if a mime prefix appears in `file-peek.tsx` at all.
+
+  **It is not a menu, and the arithmetic is a library.** `src/lib/peek-place.ts` holds one rule —
+  right of the row, flipping left when the right would leave the screen, vertically centred then
+  clamped — with no pointer offset, because a peek appears after a rest and must not trail the
+  cursor within the row. The component adds only the anchor's rect and the 300ms delay. It is
+  portalled to `document.body` (the panel clips and scrolls), `pointer-events: none` (a box under
+  the pointer that could be hit would close itself and blink), and `aria-hidden` (the row already
+  says the name, the size and the badge). Both call sites use it: a row in the open list, and the
+  22px tile in a closed cell — hovering the *button* does nothing, since that press opens the
+  panel and a preview on the way would cover it.
+
+  Proof: `scripts/run-files-probe.ps1` — **47/47 at 1400×900 and 47/47 at 390×844**. It reads the
+  `Content-Disposition` of both URLs *from the page* (the save is `attachment; filename*=…` with
+  the stored name, the view still `inline`), then hovers a real row with a real `mouseMoved`,
+  waits longer than the feature's own delay, and asserts the box's rect (on screen, beside the
+  panel rather than over it at 1400), its picture (`naturalWidth > 0`), its caption, and its
+  computed `pointer-events`. A PDF row produces **no box at all**, and leaving the list takes it
+  away. **`-Before`** now reverts *this* turn — the save link back to `fileHref`, both `<FilePeek>`
+  renders to `{null}` — and fails **7 of the 10 new checks** by name at both widths (40/47). The
+  three that still pass are the *absence* checks — *a document gets no preview*, *leaving the list
+  takes it away*, *it goes when the pointer does* — which a tree with no peek at all satisfies
+  trivially. That is written down so nobody reads 40/47 as covering the whole section. (B53's own
+  before-tree was measured last turn; reverting it again would make §1 fail and skip the hover
+  section entirely.) Regressions re-run, not assumed: **url 30/30**, **row-open 18/18**,
+  **checkbox 21/21**, **dates 77/77 + 3/3**, **places 51/51**, each at both widths.
+  `tests/peek-place.test.ts` adds 6 — flip, the inclusive gutter boundary, the viewport too narrow
+  for either side, the clamp at both ends of a list, whole pixels — and `tests/files.test.ts` adds
+  the `download=1` disposition with its name. **609 passing**, `tsc` clean, `check-docs --full` OK.
+
+  Two things worth knowing. The probe's screenshot was the only check that could say whether the
+  box *looks* like a preview, and it is kept deliberately (`artifacts/shots/files-peek-*.png`).
+  And at 390px the peek can only overlap the panel — hover is not a phone gesture, so that branch
+  is a guard, not a design.
+
+### B55 — the Formula property (the expression language, and the editor that writes it)
+
+*"Lets work on the Formula property now, It currently does nothing. In notion when I open it, a big
+dropdown opens up. Analyze it, design it and develop all the features."* Six screenshots of Notion's
+editor came with it, which is the specification.
+
+**It really did nothing.** `cell-editor.tsx` had no branch for the type, so a Formula cell fell
+through to the shared text field and *stored what you typed* — a number-shaped value in a column the
+write path refuses. B39 had settled the type's shape and said the parser would land later. It landed
+here, in **`src/lib/database/formula/`**, one module per concern:
+
+| file | what it owns |
+| --- | --- |
+| `tokenize.ts` | text → tokens, with source offsets (the highlighter paints the same tokens) |
+| `parse.ts` | tokens → AST, a Pratt parser; the precedence table is the grammar |
+| `values.ts` | the six result shapes and how each prints |
+| `dates.ts` | floating dates: add/subtract/between and a token formatter |
+| `calls.ts` | the argument readers every function shares, and the one error sentence |
+| `functions/*.ts` | General 11, Text 18, Number 27, Date 19, List 8 — **83 functions**, each with docs; the date family is also reachable through Notion's `Date.` prefix (16 aliases) |
+| `evaluate.ts` | the tree walk, `prop()`, memoised formula-of-formula, loop detection |
+| `catalog.ts` | the editor's list, *generated* from the registry |
+| `paint.ts` / `suggest.ts` | syntax colour and "which word is the caret in", both pure |
+| `trace.ts` | debug mode: the value of every node, recorded by the evaluator itself |
+
+The language is `if`/`ifs`/`and`/`or`/`not`/`empty`/`length`/`format`/`equal`/`unequal`/`let`/`lets`
+plus text, number, date and list families. `and`/`or`/`if` are **lazy** (they take thunks, so
+`if(false, 1/0, 2)` is `2`), and nothing is ever handed to `eval` or `new Function` — that is the
+binding architecture rule from B38, and the only reading of a formula is through this parser.
+
+Four decisions worth the prose:
+
+**Empty is nothing, not the wrong type.** `prop("Price") * 2` on a row with no price reads *blank*;
+a text cell where a number belongs still fails with a sentence that names the argument and says what
+it actually was (`add() argument 2 should be a number, but it is the text "two"`). A formula column
+that painted an error over the three rows that are fine would be a column people learn to ignore —
+the same rule the date functions already follow.
+
+**A formula date is the Date column's record.** `{ start, end? }`, floating, so `formatCell`,
+sorting, filtering and grouping all work on a formula date without a second implementation. It also
+means a formula result can be *given back* to the date functions unchanged.
+
+**The result is written into the payload, not into sqlite.** `applyFormulas` runs on the server's
+read path and puts each computed value in `row.cells[formulaId]`; everything downstream — the table,
+the sorts, the filters, the groups, the MCP export — reads `cells[id]` and needs no special case.
+Nothing is stored, and §9 of the probe proves the write path still refuses a value for the column.
+
+**The examples in the help are executed.** `previewFormula` runs the example code shown in the
+detail pane against the page in the preview strip, so the doc and the answer are the same call; and
+`tests/database-formula.test.ts` runs the same examples again and compares them to the documented
+result, so a summary that stops being true fails the build.
+
+The editor is `formula-panel.tsx` (a `MenuSurface` at 620px, four bands) plus `formula-cell.tsx`
+(a button that joins the shared cell-as-button selector — the *fourth* caller, which is why the test
+that guards that box now checks two own-rules). The field is a `<textarea>` with a painted `<pre>`
+underneath sharing its metrics, so a half-typed formula keeps its colour; the list is filtered by
+the word before the caret and inserts *at the caret*; `prop("` narrows it to columns. Opening on an
+existing formula does **not** narrow the list by the last token — the first keystroke starts that.
+Debug mode shows the evaluator's own trace, root first, with types.
+
+Proof: `scripts/run-formula-probe.ps1` — **43/43 at 1400×900 and 43/43 at 390×844**, against a
+disposable copy on :3111 with three formula columns (`Total`, `Label`, `Open`) and three rows. It
+asserts the read path (`80`, `Total 80`, `No`, `14`, `Empty`), that a formula cell is a button with
+no field, that the panel opens on the stored expression with the painted layer *exactly* equal to
+the field's text, that the categories list in order, that typing `dateB` narrows to one name and
+`Enter` writes `dateBetween()` with the caret inside the brackets, that `prop("Du` narrows to
+columns and inserts a complete call, that the preview re-evaluates per page, that debug shows `80`
+at the top and `40` for the property, that closing commits `prop("Price") + 5` **once** and the cell
+re-reads `45` — including the second formula that reads it (`Total 45`) — and that a direct write to
+the column is refused. **`-Before`** reverts the read path and the editor branch and fails the first
+nine checks by name at both widths, printing the old bug verbatim: an `<input class="db-cell-input">`
+inside the formula cell and an empty value. Regressions re-run, not assumed: **files 14/14**,
+**properties 30/30**, and the whole suite (below). **622 tests**, `tsc` clean, `check-docs --full` OK.
+
+Three honest notes. **The AI box from the screenshots is absent** — "Write, fix, or explain a
+formula…" needs a model this app does not have, and a field that promises a sentence and produces
+nothing is worse than a field that is not there. **The list's `map`/`filter`/`find` are absent** for
+the same kind of reason: they take a *formula* as an argument, which is a second grammar, and this
+turn's contract is a language that is complete for what it does. And **there is no number-format
+setting on a formula column** yet: `format()` and `formatNumber()` inside the expression cover it,
+and a column-level format is the same decision B43's number display is already parked on.
 
 ## What is next — in this order
 
-The database programme is numbered B38–B45. B38, B39, all of B40a–B40n and the number half of
-B43 are shipped. What follows is what the code does *not* yet have, verified against disk
-rather than against a plan:
+The database programme is numbered B38–B55. B38, B39, all of B40a–B40n and the number half of
+B43 are shipped, as are B43a–B43d, the checkbox fix (B44), the row's `Open` button (B46), the
+URL cell (B48), the Place cell (B49), its ranking (B50), the composed address for a house
+number the map does not have (B51), the picked-place card with its map (B52), the card's way out
+to Google Maps (B52b), the Files & Media upload field (B53), its save button and hover preview
+(B54), and the Formula property with its language and its editor (B55). What follows is what the
+code does *not* yet have, verified against disk rather than against a plan:
 
 1. **Finish the property rail (B40) — two items left.** `Change type`, multi-sort and the
    keyboard model shipped; what is still missing is **property reorder** (no route, no prop)
@@ -569,15 +1328,33 @@ rather than against a plan:
    status "show as Select" presentation mode.
 3. **Display semantics (B43).** The number *format* has a UI now: Number, Number with
    separators, Percentage, Duration, twelve currencies and 0–6 decimal places (B40k). Dates have
-   their picker, their format menu and their clocks (B43a). What still has **no control at all**:
+   their picker, their six named formats (Full date / Short date / three digit orders /
+   Relative) and their clocks (B43a, B43b). What still has **no control at all**:
    `display: bar|ring`, `color`, `showNumber` and `divideBy` — all four are declared in the number
    type config and read by the formatter. The date half is done.
-4. **Formulas (B44).** Nothing exists beyond a config stub. Parser → AST → evaluator,
-   cycle detection, errors as values. **Never `eval`** — this is a binding architecture
-   rule, not a preference. Largest single unit remaining.
-5. **Views (B45).** Blocked on the view registry: `src/components/database/views/` with
+4. **Views (B45).** Blocked on the view registry: `src/components/database/views/` with
    `viewRenderers: Record<ViewType, ViewComponent>` does not exist, and the API has no
    `POST /views`. Registry first, then view CRUD, then Board, Calendar, List, Gallery.
+
+**Formulas — shipped (B55).** Parser, evaluator, 83 functions, loop detection, errors as values,
+the editor. What is *not* in it: the AI box from Notion's screenshots (no model is wired to this
+app), `map`/`filter`/`find` (they take a formula as an argument, which is a second grammar), a
+column-level number format, and a setting for what an *empty* result looks like.
+
+**The map view.** The owner has said it is coming (*"later we will add a map view for the
+database"*) and B49 built the half that cannot be retrofitted: a picked place stores `lat`/`lng`
+in the cell, `placeCoordinates(value)` reads it back for any row without a network call, and the
+provider's `osm_type:osm_id` rides along as `id` so a marker keeps its identity across a
+re-search. What is *not* there: a map provider of its own, a row→point lookup that copes with a
+table holding **two** Place columns, and a decision about a Place cell that was typed rather than
+picked — it has no point, and the map has to draw that row somewhere or say it cannot. That is a
+design question before it is a code one, which is why it is not on this list yet.
+
+B51 added the third kind, and the map view now has three markers to tell apart rather than two:
+a picked door (`point`, no `approx`), a composed address (`point` **and** `approx`, because the point
+is the road's), and a typed string (no point at all). `placeReading(value)` answers
+`{ point, approximate }` so the difference survives to the drawing code instead of being guessed at
+from how many decimals a coordinate happens to have.
 
 The `readOnly`/`derived` guard that used to sit in this list as a prerequisite **is done**:
 `patchRow` refuses a value written to a computed or self-setting property, per cell, with a
