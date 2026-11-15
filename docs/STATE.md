@@ -64,8 +64,9 @@ Enough to be concrete without the 42 KB of narrative that used to be here (it is
   five minutes, five attempts, `__Host-` cookie bound by a state digest. Google OIDC survives
   as an *optional* second factor — a deployment without `GOOGLE_CLIENT_ID` still signs its
   people in, which is the shape the hosted copy runs. Accounts are created deliberately by
-  `pnpm accounts`, never by whoever reaches the form first. Untested against a real mail
-  provider; that is the one thing missing, and it is named under "Hosted deployment".
+  `pnpm accounts`, never by whoever reaches the form first. The hosted copy **sends**: SMTP
+  from `support@preston-labs.com`, with TLS verified against the relay's certificate name
+  (`RASPBERRY_SMTP_SERVERNAME`) rather than switched off. See "Hosted deployment".
 - **Database** — schema, the 16-property registry, the pure query pipeline, CRUD over
   properties/views/rows/cells, a table view with gutter, row drag, duplicate, trash,
   column menus, icon pickers and hidden properties. **This is the live workfront.**
@@ -1491,12 +1492,13 @@ is not a revival of the VPS plan, and it is why this section exists rather than 
 ### What is verified, and what is not
 
 Verified, not inferred: a Vercel function opened Neon over TLS through the pooler, ran
-`migrate()` (versions 1–7 recorded), wrote, and read the rows back (`{"status":"ok",
+`migrate()`, wrote, and read the rows back (`{"status":"ok",
 "database":true}` on a probe deployment); the whole suite passes against that server; and the
-deployed app currently refuses to serve data while unconfigured — `/` answers `local_only`
-and `/api/health` answers `{"status":"degraded"}`. **That refusal is the safe state, not a
-fault**: `servesData()` is false until authentication is configured, so the deployment serves
-nobody rather than everybody.
+deployed app now **serves**, because authentication is configured — `/api/health` answers
+`{"status":"ok","storage":"s3"}`. Before a sender existed the same URL answered `degraded`
+and `/` answered `local_only`, and **that refusal was the safe state, not a fault**:
+`servesData()` is false until authentication is configured, so an unconfigured deployment
+served nobody rather than everybody.
 
 **Uploads are done, and were proved rather than assumed.** Three facts came out of probing the
 live endpoint before a line of `src/server/storage.ts` was wired in, and each one changed the
@@ -1521,39 +1523,48 @@ preflight for the real origin answered `access-control-allow-origin: *`,
 browser may talk to the bucket at all. `tests/storage.test.ts` pins the canonical request,
 the workspace-scoped keys, and the "the declared size is not the size that is enforced" rule.
 
+**Sign-in now has its sender, which was the last thing between the deployment and its
+people.** `RASPBERRY_MAIL_BACKEND=smtp` sending as `support@preston-labs.com` from
+`mail.preston-labs.com:465`, with `RASPBERRY_SMTP_SERVERNAME=eh2.neoserv.si` because the
+relay's certificate carries the provider's machine name rather than the mailbox's — the
+reasoning, and why the other two answers are worse, is in `docs/DECISIONS.md`. Proven against
+the deployment rather than a laptop: `POST /api/auth/start` for **both** allow-listed
+addresses returned `200` with `expiresAt` exactly 300 seconds out; a non-allow-listed address
+returned `403 not_allowed` before anything was sent; `POST /api/auth/verify-code` with no
+challenge cookie answered `400 login_expired` and consumed no attempt. Both `login_challenges`
+rows show `attempts 0`, `sends 1`, `consumed_at null`, which is the five-minute single-use
+rule observed from the database rather than asserted.
+
+**What is not yet proven about mail:** inbox placement. The relay accepted from the Vercel
+function (`250 OK` twice), but whether Gmail delivers it to the inbox or the spam folder, and
+whether the relay DKIM-signs outbound with the `default` selector the domain publishes, is
+decided by the receiving side. The first code somebody actually reads answers that.
+
+**Both accounts are provisioned**, which is the half of the requirement that is not the
+allowlist: `nikprestonk@gmail.com` owns the workspace with the 21 live migrated pages and
+`tina.mahnic.photography@gmail.com` has an empty workspace of her own, both `owner`.
+
 **Not yet working, in the order it blocks:**
 
-1. **Sign-in needs exactly one thing now: a sender.** The flow itself is built and
-   deployed — address in, six-digit code out, code in, you are in — and
-   `RASPBERRY_AUTH_MODE=session`, `RASPBERRY_PUBLIC_ORIGIN`, `RASPBERRY_ALLOWED_EMAILS`
-   (two addresses) and `RASPBERRY_OWNER_EMAIL` are set on the project, as are the storage
-   variables. What is absent is a credential the deployment can *send* with:
-   `RASPBERRY_MAIL_BACKEND=http` plus `RASPBERRY_MAIL_URL` and `RASPBERRY_MAIL_TOKEN`, or
-   `smtp` plus host/port/user/pass. `console` counts as **unconfigured** in production on
-   purpose, so until one of those is set `authConfigured()` is false and the deployment
-   serves nobody rather than everybody.
-   Google is **no longer required.** `readAuthConfig` used to refuse the whole mode without
-   `GOOGLE_CLIENT_ID`, which made a working two-person sign-in read as misconfigured; the
-   client pair is now optional, and the route refuses only itself
-   (`google_not_configured`) if asked for without one.
-   One constraint before choosing a provider: a shared/sandbox sender such as Resend's
-   `onboarding@resend.dev` only delivers to the account owner's own address, so a **second**
-   recipient needs a verified domain.
-2. **Both accounts have to be provisioned, because that is the requirement.**
-   `pnpm accounts --url <postgres-url> --adopt nikprestonk@gmail.com
-   tina.mahnic.photography@gmail.com` creates the two `accounts` rows; `--adopt` is what
-   lets the owner address inherit the 215 migrated pages, and Tina gets an empty workspace of
-   her own instead of somebody else's notes. Until it runs, both addresses are refused with
-   `no_account` — that is the "user exists" gate working, not a bug, and it is also why an
-   allowlist typo cannot mint a workspace.
-3. **`pnpm backup` dies on PostgreSQL** by design (`src/server/backup.ts` refuses a non-`file:`
+1. **`pnpm backup` dies on PostgreSQL** by design (`src/server/backup.ts` refuses a non-`file:`
    URL). Backups become Neon's point-in-time restore, and the habit of a local `pnpm backup`
    stops meaning anything on the hosted copy.
-4. **Rate limiting is per instance** (`src/server/rate-limit.ts`), so it weakens as Vercel
+2. **Rate limiting is per instance** (`src/server/rate-limit.ts`), so it weakens as Vercel
    scales out. `RASPBERRY_TRUST_PROXY` is deliberately **not set**: `callerIp` takes the
    leftmost `X-Forwarded-For` entry, which the caller controls, so leaving it off makes the
    limiter over-limit rather than under-limit.
-5. **`B8`, the deployment runbook, is still unwritten.**
+3. **`B8`, the deployment runbook, is still unwritten.** Two facts it has to record and that
+   are currently only here: the Vercel project is **not connected to Git**, so a push does
+   not deploy and `vercel --prod` from this machine is the deploy path; and `vercel build`
+   emits two Turbopack warnings for the dynamic filesystem access in `storage.ts`'s disk
+   implementation, which is unused on the hosted copy but still traced into the output.
+4. **Object storage is selected by presence, not by a flag.** `blobs()` returns `S3Blobs`
+   when `RASPBERRY_S3_ENDPOINT`, `RASPBERRY_S3_BUCKET`, `RASPBERRY_S3_ACCESS_KEY_ID` and
+   `RASPBERRY_S3_SECRET_ACCESS_KEY` are all set — or the AWS names Neon injects — and
+   `DiskBlobs` otherwise. Hosted mode does **not** fall back to the disk: `FileStore.storage()`
+   answers `503 storage_not_configured`, so a deployment that loses those four values stops
+   accepting uploads loudly instead of writing to a `/tmp` that vanishes on the next cold
+   start. `/api/health` reports which backend is live as `storage: "s3" | "disk"`.
 
 ## Explicitly cancelled
 

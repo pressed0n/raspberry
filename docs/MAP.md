@@ -47,7 +47,7 @@ not on PATH here, so the invocations above are the ones that work.
 | Path | What it is | Read it when |
 |---|---|---|
 | `src/` | The app. Next.js App Router + React 19. 177 files. | Always. |
-| `tests/` | 52 test files + `schema.ts` helper. `tsx --test`. | Before and after any change. |
+| `tests/` | 53 test files + `schema.ts` helper. `tsx --test`. | Before and after any change. |
 | `docs/` | `STATE.md` (truth), `MAP.md` (this), `DECISIONS.md` (why), `TESTING.md` (how to prove), `ARCHIVE/` (history). | First, in that order. |
 | `scripts/` | 65 real tools, documented in §7. | To run or verify something. |
 | `scripts/scratch/` | Gitignored one-off probes, incl. the `cdp-*.mjs` browser probes. Evidence, not tooling — no counts here, because the number changes every session. Import `scripts/browser-session.mjs` for new ones. | Only to read a past measurement. |

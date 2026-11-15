@@ -1486,3 +1486,34 @@ var, not a code change. The constraint that decides the choice of provider is no
 and is not about this codebase: a shared sandbox sender such as Resend's
 `onboarding@resend.dev` only delivers to the account owner's own address, so the **second**
 recipient needs a domain verified with that provider.
+
+### Sending from a domain you already own dissolves that constraint
+
+`support@preston-labs.com` already has an MX, an SPF record naming the host that will send,
+and a DKIM key at `default._domainkey`. So the second-recipient problem disappears without
+buying anything, and `RASPBERRY_MAIL_BACKEND=smtp` is enough.
+
+### Verify against the certificate's name, never switch verification off
+
+The first attempt failed before a password was ever offered:
+
+```
+Hostname/IP does not match certificate's altnames: Host: mail.preston-labs.com.
+is not in the cert's altnames: DNS:eh2.neoserv.si
+```
+
+Shared hosting: the mailbox is served at `mail.<domain>`, the certificate is issued for the
+provider's machine name. There are three answers and only one is acceptable.
+
+- `rejectUnauthorized: false` — encrypts to whoever answers the socket. A password sent
+  this way is not protected by TLS at all, which defeats the point of port 465.
+- Point `RASPBERRY_SMTP_HOST` at the provider's machine name — works, and removes the
+  name an operator can look up in DNS from the configuration, so the next person to debug
+  this reads a hostname they cannot resolve back to anything on the domain.
+- `RASPBERRY_SMTP_SERVERNAME` — connect to `mail.preston-labs.com`, present and verify
+  `eh2.neoserv.si` in the SNI. Verification stays on; the friendly name stays in config.
+
+`smtpTransportOptions` exists so that decision is a value a test asserts
+(`tests/auth-smtp-transport.test.ts`), rather than something only a failed sign-in reveals.
+The override is *absent* from the options when unset rather than `undefined`, because
+nodemailer merges `tls` over its own defaults and those are different values.
