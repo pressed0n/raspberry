@@ -151,6 +151,31 @@ test("the CI job that runs this suite checks out the history the docs check read
   );
 });
 
+/* Runs 11 through 14 were red with "Documentation has drifted from the code" and no
+   indication of what drifted. The drift was the runner's own log: `tee test-output.log`
+   created a *.log in the repo root, and scripts/check-docs.mjs fails on a root log because
+   a stale one once quoted "pass 397" beside 415 real tests. The job that runs the suite was
+   creating the single file the suite forbids, so the docs test could never pass on CI no
+   matter what the docs said — and it passed locally every time, because nobody runs their
+   tests through `tee` on Windows.
+
+   A guard, not a comment: the log may live anywhere except the working tree. */
+test("the CI jobs do not write their own log into the working tree", () => {
+  const workflow = readFileSync(join(ROOT, ".github", "workflows", "ci.yml"), "utf8");
+  // Comments are stripped first, deliberately: the explanation of this bug quotes the line
+  // that caused it, and a guard that forbids *mentioning* a mistake forces the next person
+  // to delete the explanation to get green.
+  const commands = workflow.split(/\r?\n/).filter((line) => !/^\s*#/.test(line)).join("\n");
+  assert.doesNotMatch(
+    commands,
+    /tee\s+test-output\.log/,
+    "A CI job pipes test output to `test-output.log` in the working tree. " +
+      "scripts/check-docs.mjs fails on any *.log at the repo root (stale run output quoting " +
+      "numbers nobody recomputed), so the job that runs the suite creates a file that makes " +
+      "the suite fail. Pipe it into $RUNNER_TEMP instead."
+  );
+});
+
 /* B4's whole problem was that the PostgreSQL adapter existed and had never been executed:
    `docs/STATE.md` called it "unverified code", and every job ran the suite on
    `file::memory:`, so nothing could ever disagree. A comment cannot prevent that state from

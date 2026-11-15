@@ -94,18 +94,25 @@ jobs:
       # this job never needs a DATABASE_URL or a host secret. Output is kept in a
       # file because job logs require authentication to read, while annotations on
       # a public repository do not: this is what makes a red run diagnosable.
+      #
+      # The file goes in $RUNNER_TEMP, not the working tree. `tee "$RUNNER_TEMP/test-output.log"`
+      # here put a *.log at the repo root, and scripts/check-docs.mjs fails on a root
+      # log — stale run output quoting numbers nobody recomputed. So the job that ran
+      # the suite created the one file the suite forbids, and the docs test went red
+      # for the log's sake rather than the docs'. Both runs 11-14 failed this way and
+      # the annotation only said "Documentation has drifted from the code."
       - name: Test
         shell: bash
         run: |
           set -o pipefail
-          pnpm test 2>&1 | tee test-output.log
+          pnpm test 2>&1 | tee "$RUNNER_TEMP/test-output.log"
 
       - name: Report failing assertions
         if: failure()
         shell: bash
         run: |
-          if [ ! -f test-output.log ]; then exit 0; fi
-          grep -E '^(✖|not ok)|AssertionError|Error:|actual:|expected:|at tests|^  • ' test-output.log | head -20 | while IFS= read -r line; do
+          if [ ! -f "$RUNNER_TEMP/test-output.log" ]; then exit 0; fi
+          grep -E '^(✖|not ok)|AssertionError|Error:|actual:|expected:|at tests|^ *• ' "$RUNNER_TEMP/test-output.log" | head -20 | while IFS= read -r line; do
             echo "::error::${line}"
           done
 
@@ -160,14 +167,14 @@ jobs:
         shell: bash
         run: |
           set -o pipefail
-          pnpm test 2>&1 | tee test-output.log
+          pnpm test 2>&1 | tee "$RUNNER_TEMP/test-output.log"
 
       - name: Report failing assertions
         if: failure()
         shell: bash
         run: |
-          if [ ! -f test-output.log ]; then exit 0; fi
-          grep -E '^(✖|not ok)|AssertionError|Error:|actual:|expected:|at tests|^  • ' test-output.log | head -20 | while IFS= read -r line; do
+          if [ ! -f "$RUNNER_TEMP/test-output.log" ]; then exit 0; fi
+          grep -E '^(✖|not ok)|AssertionError|Error:|actual:|expected:|at tests|^ *• ' "$RUNNER_TEMP/test-output.log" | head -20 | while IFS= read -r line; do
             echo "::error::${line}"
           done
 
