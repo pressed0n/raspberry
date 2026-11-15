@@ -19,9 +19,9 @@ keeps it from rotting the way its predecessors did.
 
 - **Tests:** 694 passing, 0 failing, across 57 test files.
 - **Typecheck:** `tsc --noEmit` clean.
-- **Committed through:** `bca9d15` — docs: snapshot at the commit above.
+- **Committed through:** `9ca19c0` — feat(sync): another device's edit arrives in about a second (B56).
 - **Schema:** migrations 1–8.
-- **Working tree:** dirty (uncommitted work in progress).
+- **Working tree:** clean.
 <!-- SNAPSHOT:END -->
 
 Run it yourself, it takes four seconds:
