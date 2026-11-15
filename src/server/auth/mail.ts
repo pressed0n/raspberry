@@ -111,6 +111,10 @@ export function loginCodeMessage(code: string, minutes: number): string {
     `Your Raspberry sign-in code is ${code}.`,
     "",
     `It expires in ${minutes} minutes and can be used once.`,
-    "If you did not just try to sign in, someone has your Google password — change it now, and do not enter this code.",
+    /* This used to read "someone has your Google password". True when Google was the only
+       door; wrong since an address and a code became the door on its own — it sent the reader
+       to change a password they may not have, and said nothing about the thing that was
+       actually attacked. Name the address, and say the one rule that always applies. */
+    "If you did not just try to sign in, someone is trying to open your Raspberry with your email address. Do not enter this code, and do not forward it to anyone.",
   ].join("\n");
 }

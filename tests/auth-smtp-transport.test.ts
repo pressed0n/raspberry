@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readAuthConfig } from "../src/server/auth/config";
-import { smtpTransportOptions } from "../src/server/auth/mail";
+import { loginCodeMessage, smtpTransportOptions } from "../src/server/auth/mail";
 
 /* The relay this was written against is shared hosting: the mailbox lives at
    `mail.<domain>` but the certificate is issued for the provider's own machine name, so
@@ -123,4 +123,20 @@ test("a half-configured relay is still refused, and the override cannot stand in
   } finally {
     restore();
   }
+});
+
+test("the email carries the code, the deadline, and names the door that was tried", () => {
+  const text = loginCodeMessage("123456", 5);
+
+  assert.match(text, /\b123456\b/);
+  assert.match(text, /5 minutes/);
+  assert.match(text, /once/);
+  // The address is the thing that gets tried now, so it is the thing the warning names.
+  assert.match(text, /email address/);
+  /* It used to say "someone has your Google password", which was true only while Google was
+     the single door. Since an address and a code sign you in on their own, that sentence sent
+     people to change a password they may not have and said nothing about the actual attack.
+     Google is now optional and off on the hosted copy, so this must not come back. */
+  assert.doesNotMatch(text, /google/i);
+  assert.doesNotMatch(text, /password/i);
 });
