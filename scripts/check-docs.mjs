@@ -1,4 +1,4 @@
-﻿#!/usr/bin/env node
+#!/usr/bin/env node
 // Keeps docs/STATE.md honest.
 //
 // The reason this file exists: three documents used to claim to describe the project's
